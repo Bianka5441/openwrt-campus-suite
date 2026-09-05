@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "1.0.0-r2"
+VERSION = "1.0.1-r1"
 
 
 def tar_gz(entries):
