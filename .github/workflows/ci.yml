@@ -59,17 +59,19 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
+          # opkg names packages with underscores, APK uses dashes
           find sdk/bin -type f \( \
-            -name 'campus-auth_*.ipk' -o -name 'luci-app-campus-auth_*.ipk' -o \
-            -name 'campus-auth_*.apk' -o -name 'luci-app-campus-auth_*.apk' \) \
+            -name '*campus-auth*.ipk' -o -name '*campus-auth*.apk' \) \
             -exec cp {} artifacts/ \;
           ls -la artifacts/
+          test -n "$(ls -A artifacts/)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: campus-auth-${{ matrix.openwrt }}-${{ matrix.format }}
           path: artifacts/
+          if-no-files-found: error
 
   release:
     name: Attach packages to release
