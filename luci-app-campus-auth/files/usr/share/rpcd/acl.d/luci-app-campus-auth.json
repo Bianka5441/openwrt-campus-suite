@@ -1,0 +1,17 @@
+{
+	"luci-app-campus-auth": {
+		"description": "Grant access to campus network authentication",
+		"read": {
+			"ubus": {
+				"campus-auth": [ "status", "log" ]
+			},
+			"uci": [ "campus-auth" ]
+		},
+		"write": {
+			"ubus": {
+				"campus-auth": [ "authenticate" ]
+			},
+			"uci": [ "campus-auth" ]
+		}
+	}
+}

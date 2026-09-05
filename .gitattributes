@@ -1,0 +1,3 @@
+# Keep shell scripts LF-only: they run in ash on OpenWrt.
+* text=auto eol=lf
+*.zst binary

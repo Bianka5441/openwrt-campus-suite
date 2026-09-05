@@ -1,0 +1,96 @@
+name: Build OpenWrt packages
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: OpenWrt ${{ matrix.openwrt }} (${{ matrix.format }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # opkg era: produces .ipk packages
+          - openwrt: '24.10.8'
+            format: ipk
+            sdk: openwrt-sdk-24.10.8-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+          # apk era: produces .apk packages
+          - openwrt: '25.12.5'
+            format: apk
+            sdk: openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: openwrt-campus-auth
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file zstd xz-utils unzip
+
+      - name: Download and unpack SDK
+        run: |
+          curl -fL --retry 3 -o sdk.tar.zst \
+            "https://downloads.openwrt.org/releases/${{ matrix.openwrt }}/targets/x86/64/${{ matrix.sdk }}"
+          tar --zstd -xf sdk.tar.zst
+          mv openwrt-sdk-* sdk
+
+      - name: Prepare feeds and build
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo "src-link campusauth $GITHUB_WORKSPACE/openwrt-campus-auth" >> feeds.conf.default
+          ./scripts/feeds update campusauth || true
+          ./scripts/feeds install -f campus-auth luci-app-campus-auth
+          make defconfig
+          echo 'CONFIG_PACKAGE_campus-auth=m' >> .config
+          echo 'CONFIG_PACKAGE_luci-app-campus-auth=m' >> .config
+          make defconfig
+          make package/campus-auth/compile package/luci-app-campus-auth/compile -j"$(nproc)" V=s
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          find sdk/bin -type f \( \
+            -name 'campus-auth_*.ipk' -o -name 'luci-app-campus-auth_*.ipk' -o \
+            -name 'campus-auth_*.apk' -o -name 'luci-app-campus-auth_*.apk' \) \
+            -exec cp {} artifacts/ \;
+          ls -la artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: campus-auth-${{ matrix.openwrt }}-${{ matrix.format }}
+          path: artifacts/
+
+  release:
+    name: Attach packages to release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la artifacts/
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            artifacts/*

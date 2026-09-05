@@ -1,0 +1,134 @@
+#!/bin/sh
+# rpcd ubus plugin exposing campus-auth status to LuCI.
+# The ubus object name ("campus-auth") is the basename of this file.
+#
+# Methods:
+#   status                     -> connectivity, IPs, last auth result
+#   log {"lines": <int>}       -> tail of the authentication log
+#   authenticate               -> trigger a one-shot authentication attempt
+
+. "${IPKG_INSTROOT}/lib/functions.sh"
+. "${IPKG_INSTROOT}/usr/share/libubox/jshn.sh"
+
+LOG=/var/log/campus-auth.log
+STATE=/tmp/campus-auth.state
+CHECK_DEFAULT='http://connectivitycheck.gstatic.com/generate_204'
+
+state_var() {
+	[ -r "$STATE" ] || return 0
+	sed -n "s/^$1=//p" "$STATE" | head -n 1
+}
+
+load_config() {
+	config_load campus-auth
+	config_get CHECK_URL config check_url "$CHECK_DEFAULT"
+	config_get AUTH_HOST config auth_host '192.168.99.2'
+	config_get INTERFACE config interface ''
+}
+
+probe() {
+	local out
+	out=$(curl -sS -o /dev/null -m 6 $CURL_IF -w '%{http_code} %{redirect_url}' "$CHECK_URL" 2>/dev/null)
+	HTTP_CODE=${out%% *}
+	REDIRECT=${out#* }
+	[ "$HTTP_CODE" = "$out" ] && { HTTP_CODE=''; REDIRECT=''; }
+	[ -n "$HTTP_CODE" ] || HTTP_CODE='000'
+}
+
+user_ip() {
+	if [ -n "$INTERFACE" ]; then
+		ip -4 -o addr show dev "$INTERFACE" 2>/dev/null | awk '{sub(/\/.*/,"",$4); print $4; exit}'
+	else
+		ip -4 route get "$AUTH_HOST" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'
+	fi
+}
+
+get_status() {
+	load_config
+	CURL_IF=
+	[ -n "$INTERFACE" ] && CURL_IF="--interface $INTERFACE"
+	probe
+
+	local online=0
+	[ "$HTTP_CODE" = '204' ] && online=1
+
+	local enabled=0 running=0
+	if [ -x /etc/init.d/campus-auth ]; then
+		/etc/init.d/campus-auth enabled 2>/dev/null && enabled=1
+	fi
+	pgrep -f /usr/bin/campus-auth-loop >/dev/null 2>&1 && running=1
+
+	json_init
+	json_add_boolean online "$online"
+	json_add_string http_code "$HTTP_CODE"
+	[ -n "$REDIRECT" ] && json_add_string redirect "$REDIRECT"
+	json_add_string user_ip "$(user_ip)"
+	json_add_string auth_host "$AUTH_HOST"
+	json_add_string check_url "$CHECK_URL"
+	json_add_string last_time "$(state_var time)"
+	json_add_string last_result "$(state_var result)"
+	json_add_string last_message "$(state_var message)"
+	json_add_boolean service_enabled "$enabled"
+	json_add_boolean service_running "$running"
+	json_dump
+}
+
+get_log() {
+	local lines="$1"
+	case "$lines" in ''|*[!0-9]*) lines=50;; esac
+	[ "$lines" -gt 500 ] && lines=500
+	[ "$lines" -lt 1 ] && lines=1
+
+	local content=''
+	[ -r "$LOG" ] && content=$(tail -n "$lines" "$LOG")
+
+	json_init
+	json_add_string log "$content"
+	json_dump
+}
+
+authenticate() {
+	json_init
+	if [ ! -x /usr/bin/campus-auth ]; then
+		json_add_boolean result 0
+		json_add_string message 'campus-auth not installed'
+	else
+		# Run detached: stdout/stderr must not hold the rpcd pipe open.
+		nohup /usr/bin/campus-auth >/dev/null 2>&1 &
+		json_add_boolean result 1
+		json_add_string message 'authentication triggered'
+	fi
+	json_dump
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object 'status'
+		json_close_object
+		json_add_object 'log'
+			json_add_int 'lines' 0
+		json_close_object
+		json_add_object 'authenticate'
+		json_close_object
+		json_dump
+		json_cleanup
+		;;
+	call)
+		case "$2" in
+			status)
+				get_status
+				;;
+			log)
+				read -r input
+				json_load "$input"
+				json_get_var lines 'lines'
+				json_cleanup
+				get_log "$lines"
+				;;
+			authenticate)
+				authenticate
+				;;
+		esac
+		;;
+esac

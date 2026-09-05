@@ -1,0 +1,12 @@
+# SDK / build artifacts
+sdk/
+sdk-*/
+dist/
+*.ipk
+*.apk
+*.tar.zst
+*.tar.xz
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
