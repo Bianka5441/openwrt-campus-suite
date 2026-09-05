@@ -65,11 +65,13 @@ LuCI 界面(**Services → Campus Auth → Settings**)或直接编辑 `/etc/conf
 | UCI 选项 | 默认值 | 说明 |
 |---|---|---|
 | `enabled` | `1` | 是否启动后台守护(procd) |
+| `protocol` | `gportal` | 门户认证协议,见下方"适配其他学校" |
 | `username` / `password` | 空 | 校园网账号密码 |
 | `auth_host` | `192.168.99.2` | 认证 Portal 服务器地址 |
-| `nas_name` | `GKDX` | `wlanacname` 参数 |
-| `check_url` | hicloud generate_204 | 连通性探测 URL(需 HTTP 204),**仅用于界面展示**;认证决策一律以 Portal 状态接口为准 |
-| `interface` | 空 | 绑定校园网上行口(如 `eth1`),留空自动探测 |
+| `nas_name` | `GKDX` | `wlanacname` 参数(gportal 协议) |
+| `aes_key` | `1234567887654321` | gportal 登录表单的 AES-128 密钥,不同学校可能不同 |
+| `check_url` | hicloud generate_204 | 连通性探测 URL(需 HTTP 204),**仅用于界面展示**;gportal 的认证决策一律以 Portal 状态接口为准 |
+| `interface` | 空 | 绑定校园网上行口(如 `eth1`、`eth0.2` VLAN、`pppoe-wan`),留空自动探测;LuCI 里是真实网口下拉框 |
 | `interval` | `60` | 探测间隔(秒,最小 30) |
 
 命令行等价操作:
@@ -114,7 +116,31 @@ GitHub Actions 会在 `main` 分支和 tag 上自动构建 ipk(24.10.8 SDK)与 a
 
 ## 适配其他学校
 
-协议参数写死为 gportal 的请求格式,但都可配置:改 `auth_host`、`nas_name`,必要时抓一次浏览器登录的 HAR 核对表单字段与 AES 密钥。不同学校 Portal 若密钥不同,需修改 `campus-auth/files/campus-auth.sh` 中的 `KEY`。
+认证协议做成了插件式分发:UCI 的 `protocol` 选项决定加载 `/usr/share/campus-auth/proto/<protocol>.sh`。内置两个协议:
+
+| 协议 | 状态 | 说明 |
+|---|---|---|
+| `gportal` | **生产可用**(本仓库作者的学校长期运行) | gportal 家族:`/gportal/web/authLogin`,AES-128-CBC(密钥 `1234567887654321`,不同学校可在 `aes_key` 里改),`queryAuthState` 查状态 |
+| `ruijie` | **预览,未经实站验证** | 锐捷 eportal:离线时 HTTP 探测会被 302 到 eportal,携带 `queryString` POST `/eportal/InterFace.do?method=login`。部分学校密码需要哈希或路径不同,接入前请抓包核对 |
+
+**新增一个学校/协议**只需三步:
+
+1. 写 `/usr/share/campus-auth/proto/<name>.sh`,实现两个函数(分发器会提供 helpers 和配置环境):
+
+```sh
+# 退出码:0 在线 / 1 离线 / 2 未知错误。失败时保持安静(不写日志)。
+proto_check() { ... }
+
+# 退出码:0 成功 / 55 门户要求冷却(分发器自动写冷却标记) / 其他=失败。
+# 失败前设置 REJECT_MSG="简短原因"(不要包含密码)。
+proto_login() { ... }
+```
+
+2. 可用的环境与 helpers:`MODE`(`--check` 或空)、`USERNAME`、`PASSWORD`、`AUTH_HOST`、`NAS_NAME`、`AES_KEY`、`CHECK_URL`、`INTERFACE`、`CURL_IF`(curl 绑定参数)、`USER_IP`(尽力探测)、`TMP`(临时文件前缀)、`UA`;函数 `log`、`write_state`、`urlencode`、`field`(解析 `$TMP.html` 中的表单域)。
+
+3. LuCI 的"Portal protocol"下拉框会自动出现该协议——不过下拉列表写死在 `settings.js` 里,新协议需在其中加一行 `o.value('<name>', '<说明>')`。
+
+协议参数(gportal 家族)都可配置:`auth_host`、`nas_name`、`aes_key`。新学校接入时抓一次浏览器登录的 HAR 核对表单字段与密钥即可。
 
 ## 许可证
 

@@ -1,21 +1,25 @@
 #!/bin/sh
-# campus-auth - automatic authentication for gportal-based campus network
-# portals. Reproduces the browser login flow: fetch the login page, extract
-# the per-session sign/iv fields, AES-128-CBC encrypt the request payload
-# (ZeroPadding) and POST it to /gportal/web/authLogin.
+# campus-auth - dispatcher for campus portal authentication protocols.
 #
 # Usage:
 #   campus-auth          attempt one login (exit 0 success / non-zero failure)
 #   campus-auth --check  query portal auth state only
-#                        exit 0 online (authState:2), 1 offline (authState:1),
-#                        2 request/parse error or unexpected response
+#                        exit 0 online, 1 offline, 2 request/parse error
 #
-# A "reasoncode:55" login response means the portal ordered proxy/sharing to
-# be disabled for 15 minutes. The marker file /etc/campus-auth.reason55 is
-# created and the loop daemon makes no login attempt while it exists; the
-# marker must be removed before the next manual retry.
+# Protocol implementations live in /usr/share/campus-auth/proto/<name>.sh
+# (UCI option "protocol", default "gportal") and must define two functions:
 #
-# Configuration lives in /etc/config/campus-auth (UCI).
+#   proto_check   exit 0 online / 1 offline / 2 unknown. Silent on failure.
+#   proto_login   exit 0 success / 55 portal-ordered cooldown / other = reject.
+#                 On reject set REJECT_MSG to a short reason (no secrets).
+#
+# Helpers available to protocol scripts: log, write_state, urlencode, field
+# (field reads "$TMP.html"), plus the environment: MODE, USERNAME, PASSWORD,
+# AUTH_HOST, NAS_NAME, AES_KEY, CHECK_URL, INTERFACE, CURL_IF, USER_IP, TMP, UA.
+#
+# A "portal-ordered cooldown" (exit 55, e.g. gportal reasoncode:55) creates
+# the marker /etc/campus-auth.reason55; the loop daemon and the LuCI button
+# refuse to login while it exists.
 
 LOG=/var/log/campus-auth.log
 STATE=/tmp/campus-auth.state
@@ -34,70 +38,6 @@ write_state() {
 	} > "$STATE"
 }
 
-. /lib/functions.sh
-config_load campus-auth
-
-config_get USERNAME  config username  ''
-config_get PASSWORD  config password  ''
-config_get INTERFACE config interface ''
-config_get AUTH_HOST config auth_host '192.168.99.2'
-config_get NAS_NAME  config nas_name  'GKDX'
-
-TMP=/tmp/campus-auth.$$
-trap 'rm -f "$TMP".*' EXIT INT TERM
-
-MODE="$1"
-
-# While the reason55 cooldown marker exists, no login attempt is made;
-# state checks (--check) are still allowed.
-[ "$MODE" != "--check" ] && [ -e "$MARKER" ] && exit 55
-
-if [ "$MODE" != "--check" ]; then
-	[ -n "$USERNAME" ] && [ -n "$PASSWORD" ] || {
-		log 'username/password not configured'
-		write_state failed 'username/password not configured'
-		exit 1
-	}
-fi
-
-# Bind the requests to the campus uplink only when the user pinned one.
-CURL_IF=
-if [ -n "$INTERFACE" ]; then
-	CURL_IF="--interface $INTERFACE"
-	USER_IP=$(ip -4 -o addr show dev "$INTERFACE" | awk '{sub(/\/.*/,"",$4); print $4; exit}')
-else
-	USER_IP=$(ip -4 route get "$AUTH_HOST" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
-fi
-[ -n "$USER_IP" ] || {
-	if [ "$MODE" = "--check" ]; then
-		exit 2
-	fi
-	log 'cannot determine campus IP'
-	write_state failed 'cannot determine campus IP'
-	exit 1
-}
-
-LOGIN_URL="http://${AUTH_HOST}/gportal/web/login?wlanuserip=${USER_IP}&wlanacname=${NAS_NAME}"
-
-if curl -fsS --noproxy '*' $CURL_IF \
-	-A "$UA" \
-	-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
-	-H 'Accept-Language: zh-CN,zh;q=0.9' \
-	-H 'Cache-Control: max-age=0' \
-	-H 'Upgrade-Insecure-Requests: 1' \
-	--cookie-jar "$TMP.cookie" --connect-timeout 5 --max-time 15 \
-	"$LOGIN_URL" -o "$TMP.html"; then
-	:
-else
-	[ "$MODE" = "--check" ] || { log 'cannot fetch login page'; write_state failed 'cannot fetch login page'; }
-	exit 2
-fi
-
-field() { sed -n "s/.*name=\"$1\"[^>]*value=\"\([^\"]*\)\".*/\1/p" "$TMP.html" | head -n 1; }
-SIGN=$(field sign)
-
-# Percent-encode like jQuery $.param(): keep [A-Za-z0-9._~-] literal,
-# encode space as %20 and every other byte as %XX.
 urlencode() {
 	printf '%s' "$1" | awk '
 		BEGIN {
@@ -118,100 +58,87 @@ urlencode() {
 		}'
 }
 
-# The state query only needs a fresh sign; the login flow additionally
-# needs the 16-character session IV.
-if [ "$MODE" = "--check" ]; then
-	[ -n "$SIGN" ] || exit 2
+field() { sed -n "s/.*name=\"$1\"[^>]*value=\"\([^\"]*\)\".*/\1/p" "$TMP.html" | head -n 1; }
 
-	STATUS_RESPONSE=$(curl -fsS --noproxy '*' $CURL_IF \
-		-A "$UA" \
-		-H 'Accept: application/json, text/javascript, */*; q=0.01' \
-		-H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
-		-H 'X-Requested-With: XMLHttpRequest' \
-		-H "Origin: http://${AUTH_HOST}" \
-		-H "Referer: ${LOGIN_URL}" \
-		--cookie "$TMP.cookie" \
-		--data "userIp=$(urlencode "$USER_IP")&sign=$(urlencode "$SIGN")" \
-		"http://${AUTH_HOST}/gportal/web/queryAuthState") || exit 2
+. /lib/functions.sh
+config_load campus-auth
 
-	case "$STATUS_RESPONSE" in
-		*'"authState":2'*) exit 0;;
-		*'"authState":1'*) exit 1;;
-		*) exit 2;;
-	esac
+config_get USERNAME  config username  ''
+config_get PASSWORD  config password  ''
+config_get INTERFACE config interface ''
+config_get AUTH_HOST config auth_host '192.168.99.2'
+config_get NAS_NAME  config nas_name  'GKDX'
+config_get CHECK_URL config check_url 'http://connectivitycheck.platform.hicloud.com/generate_204'
+config_get AES_KEY   config aes_key   '1234567887654321'
+config_get PROTOCOL  config protocol  'gportal'
+
+TMP=/tmp/campus-auth.$$
+trap 'rm -f "$TMP".*' EXIT INT TERM
+
+MODE="$1"
+
+# While the cooldown marker exists, no login attempt is made;
+# state checks (--check) are still allowed.
+[ "$MODE" != "--check" ] && [ -e "$MARKER" ] && exit 55
+
+if [ "$MODE" != "--check" ]; then
+	[ -n "$USERNAME" ] && [ -n "$PASSWORD" ] || {
+		log 'username/password not configured'
+		write_state failed 'username/password not configured'
+		exit 1
+	}
 fi
 
-IV=$(field iv)
-REDIRECT=$(field redirectUrl)
-TEMPLATE=$(field portalTemplateId)
-PID=$(field pid)
-VLAN=$(field vlan)
-[ -n "$SIGN" ] && [ "${#IV}" -eq 16 ] || {
-	log 'login page missing sign/iv'
-	write_state failed 'login page missing sign/iv'
-	exit 2
-}
+# Bind the requests to the campus uplink only when the user pinned one.
+CURL_IF=
+if [ -n "$INTERFACE" ]; then
+	if ! ip link show dev "$INTERFACE" >/dev/null 2>&1; then
+		if [ "$MODE" = "--check" ]; then
+			exit 2
+		fi
+		log "configured interface '$INTERFACE' does not exist"
+		write_state failed "interface '$INTERFACE' does not exist"
+		exit 1
+	fi
+	CURL_IF="--interface $INTERFACE"
+	USER_IP=$(ip -4 -o addr show dev "$INTERFACE" | awk '{sub(/\/.*/,"",$4); print $4; exit}')
+else
+	USER_IP=$(ip -4 route get "$AUTH_HOST" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+fi
 
-FORM="nasName=$(urlencode "$NAS_NAME")&nasIp=&userIp=$(urlencode "$USER_IP")&userMac=&ssid=&apMac=&pid=$(urlencode "$PID")&vlan=$(urlencode "$VLAN")&sign=$(urlencode "$SIGN")&iv=$(urlencode "$IV")&redirectUrl=$(urlencode "$REDIRECT")&portalTemplateId=$(urlencode "$TEMPLATE")&show_type=0&account_type=&name=$(urlencode "$USERNAME")&password=$(urlencode "$PASSWORD")"
+PROTO_FILE="/usr/share/campus-auth/proto/${PROTOCOL}.sh"
+if [ ! -r "$PROTO_FILE" ]; then
+	log "unknown protocol '$PROTOCOL'"
+	write_state failed "unknown protocol '$PROTOCOL'"
+	exit 1
+fi
+# shellcheck disable=SC1090
+. "$PROTO_FILE"
 
-printf '%s' "$FORM" > "$TMP.plain"
-LEN=$(wc -c < "$TMP.plain")
-PAD=$((16 - LEN % 16))
-dd if=/dev/zero bs=1 count="$PAD" >> "$TMP.plain" 2>/dev/null
+REJECT_MSG=
+if [ "$MODE" = "--check" ]; then
+	proto_check
+	exit $?
+fi
 
-# AES-128-CBC with key "1234567887654321" (hex encoded) and the session IV.
-KEY='31323334353637383837363534333231'
-IV_HEX=
-i=1
-while [ "$i" -le 16 ]; do
-	c=$(printf '%s' "$IV" | cut -c "$i" | tr 'A-F' 'a-f')
-	case "$c" in
-		0) IV_HEX="${IV_HEX}30";; 1) IV_HEX="${IV_HEX}31";;
-		2) IV_HEX="${IV_HEX}32";; 3) IV_HEX="${IV_HEX}33";;
-		4) IV_HEX="${IV_HEX}34";; 5) IV_HEX="${IV_HEX}35";;
-		6) IV_HEX="${IV_HEX}36";; 7) IV_HEX="${IV_HEX}37";;
-		8) IV_HEX="${IV_HEX}38";; 9) IV_HEX="${IV_HEX}39";;
-		a) IV_HEX="${IV_HEX}61";; b) IV_HEX="${IV_HEX}62";;
-		c) IV_HEX="${IV_HEX}63";; d) IV_HEX="${IV_HEX}64";;
-		e) IV_HEX="${IV_HEX}65";; f) IV_HEX="${IV_HEX}66";;
-		*) log 'invalid IV'; write_state failed 'invalid IV'; exit 2;;
-	esac
-	i=$((i + 1))
-done
-
-openssl enc -aes-128-cbc -K "$KEY" -iv "$IV_HEX" -nopad -in "$TMP.plain" -a -A -out "$TMP.data" || {
-	log 'AES encryption failed'; write_state failed 'AES encryption failed'; exit 1
-}
-DATA=$(sed 's/+/%2B/g; s|/|%2F|g; s/=/%3D/g' "$TMP.data")
-
-RESPONSE=$(curl -fsS --noproxy '*' $CURL_IF \
-	-A "$UA" \
-	--connect-timeout 5 --max-time 15 \
-	-H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
-	-H "Origin: http://${AUTH_HOST}" \
-	-H "Referer: ${LOGIN_URL}" \
-	--cookie "$TMP.cookie" \
-	--data "data=${DATA}&iv=${IV}" \
-	"http://${AUTH_HOST}/gportal/web/authLogin?round=$(( $(date +%s) % 1001 ))") || {
-	log 'authentication request failed'; write_state failed 'authentication request failed'; exit 1
-}
-
-case "$RESPONSE" in
-	*'"status":1'*)
+proto_login
+rc=$?
+case "$rc" in
+	0)
 		write_state success 'authenticated'
-		log "authentication succeeded for ${USERNAME}"
+		log "authentication succeeded for ${USERNAME} (${PROTOCOL})"
 		exit 0
 		;;
-	*'"reasoncode":55'*)
+	55)
 		date +%s > "$MARKER"
 		write_state cooldown 'server requested pause (reason 55)'
-		log "authentication paused: server returned reasoncode 55; wait 15 minutes, then remove $MARKER before one manual retry"
+		log "authentication paused: portal requested a cooldown; wait 15 minutes, then remove $MARKER before one manual retry"
 		exit 55
 		;;
 	*)
-		MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-240)
-		write_state failed "rejected: ${MSG}"
-		log "authentication rejected for ${USERNAME}: ${MSG}"
-		exit 1
+		msg="${REJECT_MSG:-rejected}"
+		write_state failed "$msg"
+		log "authentication rejected for ${USERNAME}: ${msg}"
+		exit "$rc"
 		;;
 esac

@@ -3,7 +3,7 @@
 		"description": "Grant access to campus network authentication",
 		"read": {
 			"ubus": {
-				"campus-auth": [ "status", "log" ]
+				"campus-auth": [ "status", "log", "interfaces" ]
 			},
 			"uci": [ "campus-auth" ]
 		},

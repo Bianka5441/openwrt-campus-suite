@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=campus-auth
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=Bianka5441
 PKG_LICENSE:=Apache-2.0
@@ -53,6 +53,10 @@ define Package/campus-auth/install
 
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./files/campus-auth.rpcd $(1)/usr/libexec/rpcd/campus-auth
+
+	$(INSTALL_DIR) $(1)/usr/share/campus-auth/proto
+	$(INSTALL_DATA) ./files/proto-gportal.sh $(1)/usr/share/campus-auth/proto/gportal.sh
+	$(INSTALL_DATA) ./files/proto-ruijie.sh $(1)/usr/share/campus-auth/proto/ruijie.sh
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/campus-auth.config $(1)/etc/config/campus-auth

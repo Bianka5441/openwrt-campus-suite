@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "1.0.0-r1"
+VERSION = "1.0.0-r2"
 
 
 def tar_gz(entries):
@@ -90,6 +90,8 @@ PACKAGES = [
             ("usr/bin/campus-auth-loop", "campus-auth/files/campus-auth-loop.sh", 0o755),
             ("etc/init.d/campus-auth", "campus-auth/files/campus-auth.init", 0o755),
             ("usr/libexec/rpcd/campus-auth", "campus-auth/files/campus-auth.rpcd", 0o755),
+            ("usr/share/campus-auth/proto/gportal.sh", "campus-auth/files/proto-gportal.sh", 0o644),
+            ("usr/share/campus-auth/proto/ruijie.sh", "campus-auth/files/proto-ruijie.sh", 0o644),
             ("etc/config/campus-auth", "campus-auth/files/campus-auth.config", 0o600),
         ],
     ),

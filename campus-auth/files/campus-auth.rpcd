@@ -5,6 +5,7 @@
 # Methods:
 #   status                     -> connectivity, IPs, cooldown, last auth result
 #   log {"lines": <int>}       -> tail of the authentication log
+#   interfaces                 -> list of network devices for the UI dropdown
 #   authenticate               -> trigger a one-shot authentication attempt
 #                                 (refused while the reason55 cooldown marker
 #                                 exists)
@@ -91,6 +92,16 @@ get_log() {
 	json_dump
 }
 
+interfaces() {
+	json_init
+	json_add_array devices
+	for d in $(ip -o link 2>/dev/null | awk -F': ' '{print $2}' | awk '{print $1}' | grep -v '^lo$'); do
+		json_add_string "" "$d"
+	done
+	json_close_array
+	json_dump
+}
+
 authenticate() {
 	json_init
 	if [ -e "$MARKER" ]; then
@@ -116,6 +127,8 @@ case "$1" in
 		json_add_object 'log'
 			json_add_int 'lines' 0
 		json_close_object
+		json_add_object 'interfaces'
+		json_close_object
 		json_add_object 'authenticate'
 		json_close_object
 		json_dump
@@ -132,6 +145,9 @@ case "$1" in
 				json_get_var lines 'lines'
 				json_cleanup
 				get_log "$lines"
+				;;
+			interfaces)
+				interfaces
 				;;
 			authenticate)
 				authenticate
