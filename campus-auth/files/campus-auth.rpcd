@@ -3,16 +3,19 @@
 # The ubus object name ("campus-auth") is the basename of this file.
 #
 # Methods:
-#   status                     -> connectivity, IPs, last auth result
+#   status                     -> connectivity, IPs, cooldown, last auth result
 #   log {"lines": <int>}       -> tail of the authentication log
 #   authenticate               -> trigger a one-shot authentication attempt
+#                                 (refused while the reason55 cooldown marker
+#                                 exists)
 
 . "${IPKG_INSTROOT}/lib/functions.sh"
 . "${IPKG_INSTROOT}/usr/share/libubox/jshn.sh"
 
 LOG=/var/log/campus-auth.log
 STATE=/tmp/campus-auth.state
-CHECK_DEFAULT='http://connectivitycheck.gstatic.com/generate_204'
+MARKER=/etc/campus-auth.reason55
+CHECK_DEFAULT='http://connectivitycheck.platform.hicloud.com/generate_204'
 
 state_var() {
 	[ -r "$STATE" ] || return 0
@@ -62,6 +65,7 @@ get_status() {
 	json_add_boolean online "$online"
 	json_add_string http_code "$HTTP_CODE"
 	[ -n "$REDIRECT" ] && json_add_string redirect "$REDIRECT"
+	json_add_boolean cooldown "$([ -e "$MARKER" ] && echo 1 || echo 0)"
 	json_add_string user_ip "$(user_ip)"
 	json_add_string auth_host "$AUTH_HOST"
 	json_add_string check_url "$CHECK_URL"
@@ -89,7 +93,10 @@ get_log() {
 
 authenticate() {
 	json_init
-	if [ ! -x /usr/bin/campus-auth ]; then
+	if [ -e "$MARKER" ]; then
+		json_add_boolean result 0
+		json_add_string message 'authentication paused by the portal (reason 55); remove /etc/campus-auth.reason55 after the 15-minute cooldown and retry'
+	elif [ ! -x /usr/bin/campus-auth ]; then
 		json_add_boolean result 0
 		json_add_string message 'campus-auth not installed'
 	else

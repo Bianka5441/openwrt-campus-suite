@@ -55,4 +55,13 @@ define Package/luci-app-campus-auth/install
 		$(1)/www/luci-static/resources/view/campus-auth/
 endef
 
+define Package/luci-app-campus-auth/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || {
+	/etc/init.d/rpcd restart 2>/dev/null || true
+	/etc/init.d/rpcd reload 2>/dev/null || true
+}
+exit 0
+endef
+
 $(eval $(call BuildPackage,luci-app-campus-auth))

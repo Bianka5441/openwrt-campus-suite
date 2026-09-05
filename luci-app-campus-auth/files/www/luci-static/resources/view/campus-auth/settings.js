@@ -32,8 +32,8 @@ return view.extend({
 		o.description = _('wlanacname parameter expected by the portal.');
 
 		o = s.option(form.Value, 'check_url', _('Connectivity check URL'));
-		o.placeholder = 'http://connectivitycheck.gstatic.com/generate_204';
-		o.description = _('Endpoint that must respond with HTTP 204 when the campus network is reachable.');
+		o.placeholder = 'http://connectivitycheck.platform.hicloud.com/generate_204';
+		o.description = _('Endpoint that must respond with HTTP 204 when the campus network is reachable. Display only: authentication decisions are made against the portal state endpoint.');
 
 		o = s.option(form.Value, 'interface', _('Interface (optional)'));
 		o.placeholder = _('e.g. eth1 (leave empty to auto-detect)');
@@ -41,7 +41,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'interval', _('Check interval (seconds)'));
 		o.datatype = 'range(30,3600)';
-		o.default = '120';
+		o.default = '60';
 
 		return m.render();
 	}

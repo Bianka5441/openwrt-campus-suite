@@ -68,9 +68,9 @@ LuCI 界面(**Services → Campus Auth → Settings**)或直接编辑 `/etc/conf
 | `username` / `password` | 空 | 校园网账号密码 |
 | `auth_host` | `192.168.99.2` | 认证 Portal 服务器地址 |
 | `nas_name` | `GKDX` | `wlanacname` 参数 |
-| `check_url` | gstatic generate_204 | 连通性探测 URL,需以 HTTP 204 响应 |
+| `check_url` | hicloud generate_204 | 连通性探测 URL(需 HTTP 204),**仅用于界面展示**;认证决策一律以 Portal 状态接口为准 |
 | `interface` | 空 | 绑定校园网上行口(如 `eth1`),留空自动探测 |
-| `interval` | `120` | 探测间隔(秒,最小 30) |
+| `interval` | `60` | 探测间隔(秒,最小 30) |
 
 命令行等价操作:
 
@@ -80,6 +80,18 @@ uci set campus-auth.config.password='你的密码'
 uci commit campus-auth
 /etc/init.d/campus-auth restart
 ```
+
+### 状态判定与冷却(reason 55)
+
+后台守护**不以** HTTP 204 探测作为认证依据,而是每轮调用 `/usr/bin/campus-auth --check` 查询 Portal 的 `queryAuthState`:
+
+| `--check` 退出码 | 含义 | 守护行为 |
+|---|---|---|
+| `0` | 在线(`authState:2`) | 清零失败计数;连续登录后需等到一次在线确认才会再次认证 |
+| `1` | 离线(`authState:1`) | 失败计数 +1,连续两次离线触发**恰好一次**登录 |
+| `2` | 请求/解析错误 | 计数清零,**绝不**自动认证 |
+
+登录响应包含 `reasoncode:55` 时(服务器要求关闭代理/共享并等待),脚本写入 `/etc/campus-auth.reason55` 冷却标记:守护循环与 LuCI 的 **Authenticate now** 按钮都会拒绝在冷却期内发起登录;15 分钟后手动删除该标记再重试一次。
 
 日志:`logread | grep campus-auth` 或 `cat /var/log/campus-auth.log`。
 

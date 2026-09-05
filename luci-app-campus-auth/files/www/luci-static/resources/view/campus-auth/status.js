@@ -24,9 +24,10 @@ var callAuthenticate = rpc.declare({
 
 function fmtResult(r) {
 	switch (r) {
-		case 'success': return _('Success');
-		case 'failed':  return _('Failed');
-		default:        return '-';
+		case 'success':  return _('Success');
+		case 'failed':   return _('Failed');
+		case 'cooldown': return _('Paused by portal (reason 55)');
+		default:         return '-';
 	}
 }
 
@@ -82,6 +83,9 @@ return view.extend({
 					svc = st.service_running ? _('Running') : _('Not running');
 				else
 					svc = _('Disabled');
+
+				if (st.cooldown)
+					svc += ' · %s'.format(_('Server cooldown active: automatic retries paused, remove /etc/campus-auth.reason55 after 15 minutes'));
 
 				var last = '-';
 				if (st.last_time)
