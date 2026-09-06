@@ -67,7 +67,13 @@ AES_KEY='...' USERNAME='...' PASSWORD='...' sh bootstrap-stack.sh
 - **离线兜底**：校网访问 GitHub 不稳时，把安装包预放到 `/tmp/`（`campus-auth.ipk`、`luci-app-campus-auth.ipk`、`ua3f.ipk`）再跑，脚本自动跳过下载；
 - **OpenClash 本体不自动安装**（仅写配置）——从 [OpenClash Releases](https://github.com/vernesong/OpenClash/releases) 安装后重跑脚本即可。
 
-已验证环境：ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`，作者实机长期运行。
+**全新刷机机器的三个前提**（脚本会自动检测第一条并给出指引）：
+
+1. **先过门户再跑脚本**：门户会话按 IP 生效——用局域网任意设备浏览器手动登录一次校园网，路由器随之有网；或者离线预置 `/tmp/` 安装包（见上）；
+2. **OpenClash 手动装**：脚本不装本体；
+3. **先设 root 密码**：全新系统 dropbear 拒绝空密码登录，scp/ssh 前先在 LuCI 首启设置。
+
+已验证环境：ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`，作者实机长期运行。fw4（22.03+，nftables drop-in）与 apk（25.12+）路径已实现但未经实机验证；`ruijie` 协议为预览版。
 
 ## 手动部署（分步）
 

@@ -56,6 +56,30 @@ if [ -z "$WAN_IF" ]; then
 fi
 info "arch=$ARCH pkgmgr=$PKGMGR firewall=$([ "$FW4" = 1 ] && echo fw4/nft || echo fw3/iptables) wan_if=${WAN_IF:-auto}"
 
+# Chicken-and-egg guard: a freshly flashed router behind a campus portal has
+# no internet until SOMEONE authenticates - and portal sessions are per-IP,
+# so a manual login from any LAN device unlocks the router too.
+STAGED=0
+for f in /tmp/campus-auth.ipk /tmp/luci-app-campus-auth.ipk /tmp/ua3f.ipk /tmp/ua3f.apk; do
+	[ -s "$f" ] && STAGED=$((STAGED + 1))
+done
+if [ "$STAGED" -lt 2 ] && ! curl -s -o /dev/null -m 8 --http1.1 https://github.com; then
+	cat <<WARN
+
+[bootstrap][BLOCKED] 这台路由器当前无法访问互联网（全新机器尚未通过门户认证）。
+两条路任选其一：
+  A. 用局域网任意设备浏览器手动登录一次校园网门户（会话按 IP 生效，
+     路由器随之有网），然后重新运行本脚本；
+  B. 离线预置：在一台有网的电脑上从 GitHub Releases 下载
+     campus-auth / luci-app-campus-auth（ipk 或 apk）与对应架构的 UA3F 包，
+     scp 到路由器 /tmp/ 并改名为 campus-auth.ipk、luci-app-campus-auth.ipk、
+     ua3f.ipk，再重新运行本脚本（将完全离线安装）。
+OpenClash 本体同样需要预先安装（脚本只负责配置）。
+
+WARN
+	exit 1
+fi
+
 # ------------------------------------------------------- 1. campus-auth ---
 info "1/5 installing campus-auth from the GitHub release"
 CA_IPK=/tmp/campus-auth.ipk
