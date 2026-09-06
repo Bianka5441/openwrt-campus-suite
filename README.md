@@ -48,6 +48,7 @@
 | `docs/ua3f-config.example` | UA3F 配置（GLOBAL 统一 Chrome UA） |
 | `docs/campus-detect-hardening.sh` | TTL/NTP/DNS 加固（fw3 iptables，幂等可回滚） |
 | `docs/TEST-PLAN.md` | 触发检测后的分阶段对照实验方法 |
+| `docs/LESSONS.md` | **实机部署全程踩坑实录**（24 条经验教训，按现象→根因→正确姿势） |
 
 ## 快速部署（推荐）
 
