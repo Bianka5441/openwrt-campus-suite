@@ -12,6 +12,7 @@
 #   AUTH_HOST=192.168.99.2 NAS_NAME=GKDX PROTOCOL=gportal \
 #   AES_KEY=1234567887654321 INTERFACE=eth1 INTERVAL=60 \
 #   USERNAME=... PASSWORD=... sh bootstrap-stack.sh
+# Existing non-empty credentials are kept on reruns unless FORCE_CREDS=1.
 #
 # Offline fallback: put pre-downloaded files in /tmp before running:
 #   /tmp/campus-auth.ipk /tmp/luci-app-campus-auth.ipk /tmp/ua3f.ipk
@@ -119,8 +120,18 @@ else
 fi
 
 info "writing UCI config (credentials are not echoed)"
-uci set campus-auth.config.username="$USERNAME"
-uci set campus-auth.config.password="$PASSWORD"
+# Never clobber working credentials on an already-configured router:
+# a rerun must not replace a known-good password with the env value
+# (or a placeholder). FORCE_CREDS=1 overrides this guard.
+EXISTING_U=$(uci -q get campus-auth.config.username)
+EXISTING_P=$(uci -q get campus-auth.config.password)
+if [ -n "${FORCE_CREDS:-}" ] || [ -z "$EXISTING_U" ] || [ -z "$EXISTING_P" ]; then
+	uci set campus-auth.config.username="$USERNAME"
+	uci set campus-auth.config.password="$PASSWORD"
+	info "credentials written${FORCE_CREDS:+ (forced)}"
+else
+	info "credentials already configured - keeping them (FORCE_CREDS=1 to overwrite)"
+fi
 uci set campus-auth.config.protocol="$PROTOCOL"
 uci set campus-auth.config.aes_key="$AES_KEY"
 uci set campus-auth.config.auth_host="$AUTH_HOST"
