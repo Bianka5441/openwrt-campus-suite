@@ -1,0 +1,68 @@
+#--------------------------------------------------------------------------------------#
+# OpenClash 配置：UA3F 统一 UA 版（防断网修正版）
+# 依据 https://github.com/SunBK201/UA3F 官方说明整理
+#
+# 与视频原版 ua3f-socks5-cn.yaml 的区别（重点）：
+#   原版规则是 MATCH,ua3f —— 所有 TCP 全部交给本地 1080 的 UA3F。
+#   一旦 UA3F 未运行，全部下游流量发往一个不存在的 SOCKS5，全网断网
+#   （2026-09 实际发生过一次）。
+#   本版改为：只有 TCP 80（明文 HTTP，UA 唯一可见的地方）走 UA3F，
+#   其余全部 DIRECT。UA3F 挂掉时只影响纯 HTTP 网页，HTTPS/APP/游戏不受影响。
+#
+# 注意：
+#   1. 校园网只能看到明文 HTTP 的 UA，TLS(443) 内容对它不可见，无需处理；
+#   2. 私有网段必须放在 DST-PORT 规则之前，保证 192.168.99.2 门户认证、
+#      192.168.6.1 路由后台、10.0.0.0/8 校园内网永远直连、UA 不被改写；
+#   3. PROCESS-NAME,ua3f,DIRECT 是官方要求的防回环规则，必须保持在最顶部。
+#--------------------------------------------------------------------------------------#
+mixed-port: 7890
+ipv6: false
+mode: rule
+
+dns:
+  enable: true
+  listen: 0.0.0.0:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.lan'
+    - '+.local'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://223.5.5.5/dns-query
+    - https://doh.pub/dns-query
+
+proxies:
+  - name: "ua3f"
+    type: socks5
+    server: 127.0.0.1
+    port: 1080
+    url: http://connectivitycheck.platform.hicloud.com/generate_204
+    udp: false
+  # 若要"真加密/单出口"（校园网只看到一条到 VPS 的加密流），
+  # 在此追加自建节点，并把下方 MATCH,DIRECT 改为 MATCH,你的节点名：
+  # - name: "my-vps"
+  #   type: vless        # 或 trojan / ss，按你的服务端
+  #   server: your.vps.example.com
+  #   port: 443
+  #   uuid: 00000000-0000-0000-0000-000000000000
+  #   tls: true
+  #   network: tcp
+
+rules:
+  # --- 防回环：UA3F 自己的出站流量绝不能再进 Clash（官方要求，置顶） ---
+  - PROCESS-NAME,ua3f,DIRECT
+  # --- 私有网段/校园内网直连：门户认证与路由后台不受任何影响 ---
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  # --- UDP 一律直连：SOCKS5 节点 udp:false，UDP 进 UA3F 会失败 ---
+  - NETWORK,udp,DIRECT
+  # --- 只有明文 HTTP 的 UA 需要统一，交给 UA3F ---
+  - DST-PORT,80,ua3f
+  # --- 其余全部直连：UA3F 挂掉时仅 80 端口网页受影响，不再全网断 ---
+  - MATCH,DIRECT

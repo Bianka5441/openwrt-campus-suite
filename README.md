@@ -1,105 +1,170 @@
-# OpenWrt Campus Auth
+# OpenWrt Campus Auth — 校园网认证守护 + 多设备共存全套方案
 
 [![Build OpenWrt packages](https://github.com/Bianka5441/openwrt-campus-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/Bianka5441/openwrt-campus-auth/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 
-在 OpenWrt 路由器上自动完成 **gportal 型校园网 Portal 认证**的插件:后台守护进程掉线自动重连,并提供 **LuCI Web 界面**用于输入校园网账号密码、查看网络状态和手动触发认证。
+一套在 OpenWrt 路由器上长期运行的组合方案，解决两件事：
 
-脚本完全复刻浏览器登录流程(已通过 HAR 抓包核对):每次认证先抓取登录页获取新鲜的 `sign` / `iv` 字段,再用 AES-128-CBC(密钥 `1234567887654321`,ZeroPadding)加密表单后 POST 到 `/gportal/web/authLogin`。
+1. **门户认证**：掉线自动重连的认证守护插件（本仓库核心，带 LuCI 界面）；
+2. **多设备共存**：让校园网检测系统把 NAT 后的多台设备看成一台——统一 User-Agent、统一 TTL、统一 NTP/DNS。
 
-> 与 [UA3F](https://github.com/SunBK201/UA3F)/OpenClash 那类"改写 UA 绕过多设备检测"的方案完全互补:本插件负责**认证上线**,上线之后的多设备共享方案可以另行部署。
+> ⚠️ **免责声明**：本项目仅供网络协议学习与个人研究。使用前请了解所在网络服务条款，自行承担合规风险；请勿用于商业或破坏性用途。门户侧如明确要求停止共享（如 `reasoncode:55`），请先遵守。
 
-## 组成
+## 方案架构
 
-| 包名 | 说明 |
-|---|---|
-| `campus-auth` | 后端:`/usr/bin/campus-auth` 认证脚本、`campus-auth-loop` 探测守护、procd init 服务、rpcd ubus 状态接口 |
-| `luci-app-campus-auth` | 前端:LuCI 界面(**Services → Campus Auth**),依赖 `campus-auth` |
-
-LuCI 界面提供:
-
-- **Status 页**:实时网络连通性(HTTP 204 探测)、认证 Portal 地址、校园网 IP、后台服务运行状态、最近一次认证结果、认证日志(每 5 秒刷新),以及 **Authenticate now** 手动认证按钮;
-- **Settings 页**:账号、密码、Portal 地址、NAS 名(wlanacname)、探测 URL、绑定网卡、探测间隔,基于 UCI 配置(`Save & Apply` 自动重载服务)。
-
-## 安装
-
-### 方式一:从 Release 下载安装(推荐)
-
-到 [Releases](https://github.com/Bianka5441/openwrt-campus-auth/releases) 下载与你路由器架构无关的 `all` 包(`PKGARCH=all`,纯脚本):
-
-```sh
-# OpenWrt 24.10 及更早(opkg / ipk)
-cd /tmp
-wget -O campus-auth.ipk       https://github.com/Bianka5441/openwrt-campus-auth/releases/latest/download/campus-auth_..._all.ipk
-wget -O luci-app.ipk          https://github.com/Bianka5441/openwrt-campus-auth/releases/latest/download/luci-app-campus-auth_..._all.ipk
-opkg install campus-auth.ipk luci-app.ipk
-/etc/init.d/campus-auth enable && /etc/init.d/campus-auth start
+```
+[手机/电脑等设备]
+   │ WiFi / 有线
+   ▼
+[路由器]
+   ├─ iptables/nft: DNS(53)/NTP(123) 强制走路由器   ← 统一 DNS 与时钟
+   ├─ OpenClash (TUN): 终结所有 TCP/UDP 连接        ← 统一 TCP 栈指纹
+   │    ├─ 门户/私网 → DIRECT（认证流量不碰）
+   │    ├─ UDP → DIRECT
+   │    ├─ TCP 80 → UA3F(127.0.0.1:1080) → 统一 UA  ← 检测最常用的向量
+   │    └─ 其余 → DIRECT
+   ├─ iptables/nft: 出 WAN 的 TTL 统一为 64          ← 经典检测向量
+   └─ NAT: 全部流量以一个 IP 出校园网
 ```
 
-```sh
-# OpenWrt 25.12 及以后(APK 包管理器)
-cd /tmp
-wget -O campus-auth.apk  https://github.com/Bianka5441/openwrt-campus-auth/releases/latest/download/campus-auth_..._all.apk
-wget -O luci-app.apk     https://github.com/Bianka5441/openwrt-campus-auth/releases/latest/download/luci-app-campus-auth_..._all.apk
-apk add --allow-untrusted campus-auth.apk luci-app.apk
-/etc/init.d/campus-auth enable && /etc/init.d/campus-auth start
-```
-
-> 说明:OpenWrt 自 24.10 起仍使用 `opkg`(ipk),新的 25.x 系列改用 Alpine 式的 `apk` 包管理器(**这里的 apk 指 OpenWrt 新包格式,不是安卓 APK**)。CI 会同时产出两种格式。
-
-### 方式二:添加为软件源 feed
-
-```sh
-# opkg(24.10)
-echo 'src-git campusauth https://github.com/Bianka5441/openwrt-campus-auth.git' >> /etc/opkg/customfeeds.conf
-opkg update && opkg install luci-app-campus-auth
-
-# apk(25.12)在 /etc/apk/repositories.d/ 下新增一行指向包含本包的仓库索引后:
-# apk update && apk add luci-app-campus-auth
-```
-
-### 配置
-
-LuCI 界面(**Services → Campus Auth → Settings**)或直接编辑 `/etc/config/campus-auth`:
-
-| UCI 选项 | 默认值 | 说明 |
+| 检测向量 | 对策 | 实现位置 |
 |---|---|---|
-| `enabled` | `1` | 是否启动后台守护(procd) |
-| `protocol` | `gportal` | 门户认证协议,见下方"适配其他学校" |
-| `username` / `password` | 空 | 校园网账号密码 |
-| `auth_host` | `192.168.99.2` | 认证 Portal 服务器地址 |
-| `nas_name` | `GKDX` | `wlanacname` 参数(gportal 协议) |
-| `aes_key` | `1234567887654321` | gportal 登录表单的 AES-128 密钥,不同学校可能不同 |
-| `check_url` | hicloud generate_204 | 连通性探测 URL(需 HTTP 204),**仅用于界面展示**;gportal 的认证决策一律以 Portal 状态接口为准 |
-| `interface` | 空 | 绑定校园网上行口(如 `eth1`、`eth0.2` VLAN、`pppoe-wan`),留空自动探测;LuCI 里是真实网口下拉框 |
-| `interval` | `60` | 探测间隔(秒,最小 30) |
+| TTL 差异（多设备） | 出 WAN 一律 64 | `docs/campus-detect-hardening.sh` |
+| HTTP User-Agent 多样性 | 全部改写为同一条 Chrome UA | UA3F（GLOBAL 模式） |
+| DNS 行为差异 | 53 端口强制走路由器 | 同上 |
+| 时钟偏移（clock skew） | 123 端口 NTP 强制走路由器 | 同上 |
+| TCP 栈/uptime 指纹 | clash TUN 终结后由路由器栈重发起 | OpenClash 配置 |
+| IPv6 旁路 | 校园网未下发则无风险；有则关 LAN RA | 加固脚本 `ipv6-off` |
+| SNI/Host 多样性、流量画像 | **当前方案不覆盖**——需自建 VPS 全代理，见下文 | — |
 
-命令行等价操作:
+## 仓库内容
+
+| 文件 | 说明 |
+|---|---|
+| `campus-auth/`、`luci-app-campus-auth/` | 认证插件源码（后端 + LuCI） |
+| `tools/bootstrap-stack.sh` | **一键部署脚本**（其他路由器快速复刻） |
+| `tools/build-ipk.py` | 无 SDK 本地打包（测试用） |
+| `docs/openclash-ua3f.yaml` | OpenClash 配置（80→UA3F、其余直连、门户直连） |
+| `docs/ua3f-config.example` | UA3F 配置（GLOBAL 统一 Chrome UA） |
+| `docs/campus-detect-hardening.sh` | TTL/NTP/DNS 加固（fw3 iptables，幂等可回滚） |
+| `docs/TEST-PLAN.md` | 触发检测后的分阶段对照实验方法 |
+
+## 快速部署（推荐）
+
+`tools/bootstrap-stack.sh` 在目标路由器上一次性完成全栈部署，自动探测 CPU 架构、包管理器（opkg/apk）、防火墙代际（fw3/iptables 与 fw4/nftables）和 WAN 口：
 
 ```sh
-uci set campus-auth.config.username='你的学号'
-uci set campus-auth.config.password='你的密码'
-uci commit campus-auth
-/etc/init.d/campus-auth restart
+# 你学校（默认参数，只填凭据）：
+USERNAME='学号' PASSWORD='密码' sh bootstrap-stack.sh
+
+# 其他学校按需覆盖：
+AUTH_HOST='10.x.x.x' NAS_NAME='XXXX' PROTOCOL='ruijie' \
+AES_KEY='...' USERNAME='...' PASSWORD='...' sh bootstrap-stack.sh
 ```
 
-### 状态判定与冷却(reason 55)
+- **幂等**：可重复执行，不会堆积状态；
+- **离线兜底**：校网访问 GitHub 不稳时，把安装包预放到 `/tmp/`（`campus-auth.ipk`、`luci-app-campus-auth.ipk`、`ua3f.ipk`）再跑，脚本自动跳过下载；
+- **OpenClash 本体不自动安装**（仅写配置）——从 [OpenClash Releases](https://github.com/vernesong/OpenClash/releases) 安装后重跑脚本即可。
 
-后台守护**不以** HTTP 204 探测作为认证依据,而是每轮调用 `/usr/bin/campus-auth --check` 查询 Portal 的 `queryAuthState`:
+已验证环境：ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`，作者实机长期运行。
+
+## 手动部署（分步）
+
+以下步骤复刻作者实机的当前配置。
+
+### 1. 认证插件 campus-auth
+
+```sh
+# 到 Releases 下载 ipk（OpenWrt ≤24.10）或 apk（25.12+），arch 无关（PKGARCH=all）
+opkg install campus-auth_1.0.1-r1_all.ipk luci-app-campus-auth_1.0.1-r1_all.ipk
+uci set campus-auth.config.username='学号'
+uci set campus-auth.config.password='密码'
+uci commit campus-auth && chmod 600 /etc/config/campus-auth
+/etc/init.d/campus-auth enable && /etc/init.d/campus-auth start
+```
+
+### 2. UA3F（统一 User-Agent）
+
+从 [SunBK201/UA3F Releases](https://github.com/SunBK201/UA3F/releases) 下载**与本机架构一致**的包（`opkg print-architecture` 或 `/etc/openwrt_release` 里的 `DISTRIB_ARCH`），然后：
+
+```sh
+opkg install ua3f_<版本>_<架构>.ipk
+cp docs/ua3f-config.example /etc/config/ua3f   # GLOBAL 统一为 Chrome/133 (Windows)
+/etc/init.d/ua3f enable && /etc/init.d/ua3f restart
+netstat -ln | grep 1080                        # 必须看到 127.0.0.1:1080 再进行下一步
+```
+
+**重要**：视频教程里 2.3.0 旧格式的 `/etc/config/ua3f`（`rewrite_rules` JSON）与 3.6.0 的 init 脚本不兼容，会以"规则模式 + 零规则"启动、什么都不改写且无报错。务必用 `docs/ua3f-config.example` 这个格式，并确认进程参数为 `-x GLOBAL -f <UA>`（`ps w | grep ua3f`）。
+
+### 3. OpenClash（流量编排）
+
+安装 OpenClash 后，上传 [`docs/openclash-ua3f.yaml`](docs/openclash-ua3f.yaml) 为配置文件并启用：
+
+```sh
+cp docs/openclash-ua3f.yaml /etc/openclash/config/openclash-ua3f.yaml
+uci set openclash.config.enable='1'
+uci set openclash.config.config_path='/etc/openclash/config/openclash-ua3f.yaml'
+uci commit openclash
+/etc/init.d/openclash restart
+```
+
+配置要点（防断网设计）：只有 **TCP 80** 走 UA3F（明文 HTTP 是检测方唯一能看到 UA 的地方），其余全部 DIRECT——UA3F 挂了只影响纯 HTTP 网页，不再全网断；私有网段和门户永远直连。注意 OpenClash 自管端口（mixed=7893、redirect=7892、dns=7874），yaml 里的 `mixed-port: 7890` 会被覆盖，属正常。
+
+### 4. 防火墙加固（TTL/NTP/DNS）
+
+```sh
+sh docs/campus-detect-hardening.sh apply      # 先确认脚本里 WAN_IF 与实际一致
+sh docs/campus-detect-hardening.sh status
+```
+
+fw4（OpenWrt 22.03+）系统用 `bootstrap-stack.sh` 部署，它会生成等价的 nftables drop-in（`/etc/nftables.d/campus-detect.nft`）。
+
+### 5. 验证
+
+```sh
+# 门户与链路
+/usr/bin/campus-auth --check; echo $?         # 0=在线
+curl -4 --noproxy '*' --interface <WAN口> -o /dev/null -w '%{http_code}\n' https://www.baidu.com
+
+# UA 统一（从局域网设备，必须 http 而非 https）
+curl http://httpbin.org/user-agent            # 期望: 统一后的 Chrome UA
+
+# 80 端口确实走了 UA3F
+grep "using ua3f" /tmp/openclash.log | tail
+```
+
+LuCI 界面：**服务 → Campus Auth**（Status 实时状态 / Settings 配置）。
+
+## 状态判定与 reason55 冷却
+
+守护**不以** HTTP 204 探测作为认证依据，每轮调用 `campus-auth --check` 查询门户状态：
 
 | `--check` 退出码 | 含义 | 守护行为 |
 |---|---|---|
-| `0` | 在线(`authState:2`) | 清零失败计数;连续登录后需等到一次在线确认才会再次认证 |
-| `1` | 离线(`authState:1`) | 失败计数 +1,连续两次离线触发**恰好一次**登录 |
-| `2` | 请求/解析错误 | 计数清零,**绝不**自动认证 |
+| `0` | 在线（`authState:2`） | 清零失败计数；登录后需一次在线确认才会再次认证 |
+| `1` | 离线（`authState:1`） | 失败计数 +1，连续两次离线触发**恰好一次**登录 |
+| `2` | 请求/解析错误 | 计数清零，**绝不**自动认证 |
 
-登录响应包含 `reasoncode:55` 时(服务器要求关闭代理/共享并等待),脚本写入 `/etc/campus-auth.reason55` 冷却标记:守护循环与 LuCI 的 **Authenticate now** 按钮都会拒绝在冷却期内发起登录;15 分钟后手动删除该标记再重试一次。
+登录响应含 `reasoncode:55`（服务器要求关闭代理/共享）时写入 `/etc/campus-auth.reason55`：守护与 LuCI 的 **Authenticate now** 按钮都会拒绝在冷却期登录；15 分钟后删除该标记手动重试一次。
 
-日志:`logread | grep campus-auth` 或 `cat /var/log/campus-auth.log`。
+## 触发检测后怎么办
+
+按 [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) 的分阶段对照实验定位暴露向量：一次只改一个变量，利用 15 分钟冷却窗口逐项验证（UA → TTL → NTP/DNS → QUIC → VPS 全代理）。记录表和现场取证命令都在文档里。
+
+## 多学校适配
+
+认证协议为插件式分发：UCI `protocol` 选项加载 `/usr/share/campus-auth/proto/<name>.sh`。
+
+| 协议 | 状态 | 说明 |
+|---|---|---|
+| `gportal` | **生产可用** | `auth_host`、`nas_name`、`aes_key` 均可配置 |
+| `ruijie` | **预览，未经实站验证** | 锐捷 eportal，接入前抓包核对密码哈希与路径 |
+
+新增学校/协议：实现 `proto_check` / `proto_login` 两个函数即可（退出码契约见 `campus-auth/files/campus-auth.sh` 头部注释），`settings.js` 的下拉框加一行。
 
 ## 从源码构建
 
-仓库本身就是一个 OpenWrt feed,SDK 中如下构建:
+仓库本身是一个 OpenWrt feed，CI（GitHub Actions）会在 main 与 `v*` tag 上自动构建 ipk（24.10 SDK）与 apk（25.12 SDK）双格式，打 tag 自动发布 Release：
 
 ```sh
 curl -fLO https://downloads.openwrt.org/releases/24.10.8/targets/x86/64/openwrt-sdk-24.10.8-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst
@@ -112,55 +177,20 @@ echo 'CONFIG_PACKAGE_luci-app-campus-auth=m' >> .config && make defconfig
 make package/campus-auth/compile package/luci-app-campus-auth/compile V=s
 ```
 
-GitHub Actions 会在 `main` 分支和 tag 上自动构建 ipk(24.10.8 SDK)与 apk(25.12.5 SDK)两种产物,打 `v*` tag 时自动发布 Release。
+无 SDK 的本地快速打包：`python tools/build-ipk.py`。
 
-## 适配其他学校
+## 故障排查
 
-认证协议做成了插件式分发:UCI 的 `protocol` 选项决定加载 `/usr/share/campus-auth/proto/<protocol>.sh`。内置两个协议:
-
-| 协议 | 状态 | 说明 |
-|---|---|---|
-| `gportal` | **生产可用**(本仓库作者的学校长期运行) | gportal 家族:`/gportal/web/authLogin`,AES-128-CBC(密钥 `1234567887654321`,不同学校可在 `aes_key` 里改),`queryAuthState` 查状态 |
-| `ruijie` | **预览,未经实站验证** | 锐捷 eportal:离线时 HTTP 探测会被 302 到 eportal,携带 `queryString` POST `/eportal/InterFace.do?method=login`。部分学校密码需要哈希或路径不同,接入前请抓包核对 |
-
-**新增一个学校/协议**只需三步:
-
-1. 写 `/usr/share/campus-auth/proto/<name>.sh`,实现两个函数(分发器会提供 helpers 和配置环境):
-
-```sh
-# 退出码:0 在线 / 1 离线 / 2 未知错误。失败时保持安静(不写日志)。
-proto_check() { ... }
-
-# 退出码:0 成功 / 55 门户要求冷却(分发器自动写冷却标记) / 其他=失败。
-# 失败前设置 REJECT_MSG="简短原因"(不要包含密码)。
-proto_login() { ... }
-```
-
-2. 可用的环境与 helpers:`MODE`(`--check` 或空)、`USERNAME`、`PASSWORD`、`AUTH_HOST`、`NAS_NAME`、`AES_KEY`、`CHECK_URL`、`INTERFACE`、`CURL_IF`(curl 绑定参数)、`USER_IP`(尽力探测)、`TMP`(临时文件前缀)、`UA`;函数 `log`、`write_state`、`urlencode`、`field`(解析 `$TMP.html` 中的表单域)。
-
-3. LuCI 的"Portal protocol"下拉框会自动出现该协议——不过下拉列表写死在 `settings.js` 里,新协议需在其中加一行 `o.value('<name>', '<说明>')`。
-
-协议参数(gportal 家族)都可配置:`auth_host`、`nas_name`、`aes_key`。新学校接入时抓一次浏览器登录的 HAR 核对表单字段与密钥即可。
-
-## 快速部署到其他路由器
-
-`tools/bootstrap-stack.sh` 在目标路由器上一次性完成全栈部署(认证插件 + UA3F 统一 UA + OpenClash 配置 + TTL/NTP/DNS 加固),自动探测架构(`aarch64_cortex-a53`/`mipsel_24kc`/`x86_64`...)、包管理器(opkg/apk)与防火墙代际(fw3/iptables、fw4/nftables):
-
-```sh
-# 下载脚本到路由器后执行(校网内 GitHub 不稳时,把安装包预放到 /tmp 再跑,脚本会跳过下载):
-USERNAME='学号' PASSWORD='密码' sh bootstrap-stack.sh
-
-# 其他学校按需覆盖(协议见上文"适配其他学校"):
-AUTH_HOST='10.x.x.x' NAS_NAME='XXXX' PROTOCOL='ruijie' \
-USERNAME='...' PASSWORD='...' sh bootstrap-stack.sh
-```
-
-脚本幂等,可重复执行。注意:OpenClash 本体不自动安装(仅配置);门户协议为 `ruijie` 时属于预览实现,接入前请先抓包核对。已验证的环境:ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`。
+| 现象 | 处置 |
+|---|---|
+| 全部网页打不开、OpenClash 大量连向 127.0.0.1:1080 失败 | UA3F 没在跑：`/etc/init.d/ua3f start`，并确认已 `enable` |
+| 只有 http 打不开，https 正常 | 规则正确但 UA3F 挂了（预期降级），重启 UA3F |
+| 80 端口在 OpenClash 里走 DIRECT 而非 ua3f | 规则顺序被改，`DST-PORT,80,ua3f` 必须在 `MATCH` 前 |
+| 门户认证失败 | 先停 OpenClash 验证是否代理引起；确认未开"本机代理"；`logread \| grep campus` |
+| UA 没被改写 | `ps w \| grep ua3f` 看 `-x/-r/-f` 参数；路由器本机 `curl --socks5-hostname 127.0.0.1:1080 http://httpbin.org/user-agent` 隔离测试 |
+| OpenClash 状态 running 但没接管流量 | 防火墙规则没装全（启动被打断），干净 `restart` 一次，看 `iptables -t mangle -S \| grep openclash` |
+| 日志无内容 | 正常——日志只记录认证事件，一直在线就是空的 |
 
 ## 许可证
 
-[Apache-2.0](LICENSE)
-
----
-
-**English**: OpenWrt package (ipk for 24.10 / apk for 25.12+) that automatically authenticates against gportal-style campus network portals via AES-128-CBC encrypted POST requests, with a procd-supervised connectivity monitor and a LuCI web interface for credentials, live status and manual authentication. See the sections above; the code is self-documenting and the CI builds both package formats.
+[Apache-2.0](LICENSE)。UA3F 为 [SunBK201](https://github.com/SunBK201/UA3F) 的独立开源项目，本方案仅做配置集成与文档。

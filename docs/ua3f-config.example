@@ -1,0 +1,26 @@
+# UA3F 3.6.0 的 /etc/config/ua3f（已按路由器 init 脚本 schema 重写并上线）
+#
+# 重要：视频教程那份 2.3.0 格式配置（rewrite_rules JSON）与路由器上的 3.6.0 init 脚本
+# 不兼容（init 只认 ua / ua_regex / rewrite_mode / partial_replace 等选项），
+# 导致曾以 "RULE 模式 + 零规则" 启动、什么都不改写。
+# 视频原配置已备份在路由器：/etc/config/ua3f.video-bak
+#
+# 当前策略：GLOBAL —— 所有明文 HTTP 的 User-Agent 统一改写为下面这条
+# Windows Chrome UA（比统一成作者的默认 "FFF" 更不显眼）。
+
+config ua3f 'enabled'
+	option enabled '1'
+
+config ua3f 'main'
+	option server_mode 'SOCKS5'
+	option port '1080'
+	option bind '127.0.0.1'
+	option ua 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+	option rewrite_mode 'GLOBAL'
+	option log_level 'WARN'
+
+# 可选的进阶项（init 支持，本次未启用，留作后续实验变量）：
+#	option l3_rewrite_tcpts '1'        # 改写 TCP 时间戳（对抗 uptime 指纹）
+#	option desync_reorder '1'          # TCP 乱序对抗 DPI
+#	option desync_reorder_bytes '1024'
+#	option desync_reorder_packets '2'
