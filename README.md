@@ -142,6 +142,21 @@ proto_login() { ... }
 
 协议参数(gportal 家族)都可配置:`auth_host`、`nas_name`、`aes_key`。新学校接入时抓一次浏览器登录的 HAR 核对表单字段与密钥即可。
 
+## 快速部署到其他路由器
+
+`tools/bootstrap-stack.sh` 在目标路由器上一次性完成全栈部署(认证插件 + UA3F 统一 UA + OpenClash 配置 + TTL/NTP/DNS 加固),自动探测架构(`aarch64_cortex-a53`/`mipsel_24kc`/`x86_64`...)、包管理器(opkg/apk)与防火墙代际(fw3/iptables、fw4/nftables):
+
+```sh
+# 下载脚本到路由器后执行(校网内 GitHub 不稳时,把安装包预放到 /tmp 再跑,脚本会跳过下载):
+USERNAME='学号' PASSWORD='密码' sh bootstrap-stack.sh
+
+# 其他学校按需覆盖(协议见上文"适配其他学校"):
+AUTH_HOST='10.x.x.x' NAS_NAME='XXXX' PROTOCOL='ruijie' \
+USERNAME='...' PASSWORD='...' sh bootstrap-stack.sh
+```
+
+脚本幂等,可重复执行。注意:OpenClash 本体不自动安装(仅配置);门户协议为 `ruijie` 时属于预览实现,接入前请先抓包核对。已验证的环境:ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`。
+
 ## 许可证
 
 [Apache-2.0](LICENSE)
