@@ -60,7 +60,7 @@ info "arch=$ARCH pkgmgr=$PKGMGR firewall=$([ "$FW4" = 1 ] && echo fw4/nft || ech
 # no internet until SOMEONE authenticates - and portal sessions are per-IP,
 # so a manual login from any LAN device unlocks the router too.
 STAGED=0
-for f in /tmp/campus-auth.ipk /tmp/luci-app-campus-auth.ipk /tmp/ua3f.ipk /tmp/ua3f.apk; do
+for f in /tmp/campus-auth.ipk /tmp/campus-auth.apk /tmp/luci-app-campus-auth.ipk /tmp/luci-app-campus-auth.apk /tmp/ua3f.ipk /tmp/ua3f.apk; do
 	[ -s "$f" ] && STAGED=$((STAGED + 1))
 done
 if [ "$STAGED" -lt 2 ] && ! curl -s -o /dev/null -m 8 --http1.1 https://github.com; then
@@ -82,8 +82,9 @@ fi
 
 # ------------------------------------------------------- 1. campus-auth ---
 info "1/5 installing campus-auth from the GitHub release"
-CA_IPK=/tmp/campus-auth.ipk
-LUCI_IPK=/tmp/luci-app-campus-auth.ipk
+EXT=ipk; [ "$PKGMGR" = apk ] && EXT=apk
+CA_IPK="/tmp/campus-auth.$EXT"
+LUCI_IPK="/tmp/luci-app-campus-auth.$EXT"
 if [ "$PKGMGR" = opkg ]; then
 	CA_PAT='/campus-auth_[0-9.]*-r[0-9]*_all\.ipk'
 	LUCI_PAT='/luci-app-campus-auth_[0-9.]*-r[0-9]*_all\.ipk'
@@ -170,10 +171,9 @@ info "2/5 installing UA3F (arch: $ARCH)"
 if netstat -ln | grep -q ':1080 '; then
 	info "UA3F already listening on 1080 - keeping the running installation"
 else
-	UA3F_PKG=/tmp/ua3f.ipk
+	UA3F_PKG="/tmp/ua3f.$EXT"
 	if ! opkg list-installed 2>/dev/null | grep -q '^ua3f '; then
 		if [ ! -s "$UA3F_PKG" ]; then
-			EXT=ipk; [ "$PKGMGR" = apk ] && EXT=apk
 			info "resolving the latest UA3F release asset for $ARCH ..."
 			UA3F_URL=$(curl -s "https://api.github.com/repos/$UA3F_REPO/releases/latest" |
 				tr -d ' \t' |

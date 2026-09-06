@@ -73,6 +73,13 @@ AES_KEY='...' USERNAME='...' PASSWORD='...' sh bootstrap-stack.sh
 2. **OpenClash 手动装**：脚本不装本体；
 3. **先设 root 密码**：全新系统 dropbear 拒绝空密码登录，scp/ssh 前先在 LuCI 首启设置。
 
+**纯离线路由器**（全程无外网，PC 是唯一网络桥）用 `tools/pc-stage-and-deploy.sh`：在有网的电脑上运行，它自动在电脑侧下载全部安装包、scp 推到路由器、离线执行 bootstrap——之后插上校园网线，campus-auth 自动完成首次认证，全程无需路由器联网：
+
+```sh
+sh tools/pc-stage-and-deploy.sh root@192.168.8.1 \
+     --username '学号' --password '密码' [--with-openclash] [--local-dir 含安装包的目录]
+```
+
 已验证环境：ImmortalWrt 21.02 / fw3 / `aarch64_cortex-a53`，作者实机长期运行。fw4（22.03+，nftables drop-in）与 apk（25.12+）路径已实现但未经实机验证；`ruijie` 协议为预览版。
 
 ## 手动部署（分步）
