@@ -1,6 +1,6 @@
 # OpenWrt Campus Auth — 校园网认证守护 + 多设备共存工具箱
 
-[![Build OpenWrt packages](https://github.com/Bianka5441/openwrt-campus-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/Bianka5441/openwrt-campus-auth/actions/workflows/ci.yml)
+[![Build OpenWrt packages](https://github.com/Bianka5441/openwrt-campus-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/Bianka5441/openwrt-campus-suite/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 
 > ⚠️ **免责声明**：本项目仅供网络协议学习与个人研究。使用前请了解所在网络服务条款，自行承担合规风险；请勿用于商业或破坏性用途。门户如明确要求停止共享（`reasoncode:55`），请先遵守。
@@ -101,7 +101,7 @@ sh tools/pc-stage-and-deploy.sh root@192.168.6.1 \
 <details>
 <summary>展开 5 个手动步骤</summary>
 
-**1. 安装认证插件**：从 [Releases](https://github.com/Bianka5441/openwrt-campus-auth/releases) 下载 `campus-auth` 与 `luci-app-campus-auth` 两个包（架构无关，`all` 包），传到路由器后：
+**1. 安装认证插件**：从 [Releases](https://github.com/Bianka5441/openwrt-campus-suite/releases) 下载 `campus-auth` 与 `luci-app-campus-auth` 两个包（架构无关，`all` 包），传到路由器后：
 
 ```sh
 opkg install campus-auth_*.ipk luci-app-campus-auth_*.ipk

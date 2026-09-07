@@ -20,7 +20,7 @@
 
 set -u
 
-REPO="Bianka5441/openwrt-campus-auth"
+REPO="Bianka5441/openwrt-campus-suite"
 UA3F_REPO="SunBK201/UA3F"
 # Keep aligned with the UA3F-unified UA.
 UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'

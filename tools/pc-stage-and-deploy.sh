@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-REPO="Bianka5441/openwrt-campus-auth"
+REPO="Bianka5441/openwrt-campus-suite"
 UA3F_REPO="SunBK201/UA3F"
 OC_REPO="vernesong/OpenClash"
 
