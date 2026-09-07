@@ -81,6 +81,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -88,12 +93,13 @@ jobs:
           path: artifacts
 
       - name: Create release
+        working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          ls -la artifacts/
+          ls -la ../artifacts/
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            artifacts/*
+            ../artifacts/*
