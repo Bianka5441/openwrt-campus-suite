@@ -87,6 +87,20 @@ return view.extend({
 				if (st.cooldown)
 					svc += ' · %s'.format(_('Server cooldown active: automatic retries paused, remove /etc/campus-auth.reason55 after 15 minutes'));
 
+				var modeNames = {
+					'normal':      _('Normal router (authentication only)'),
+					'anti-detect': _('Campus auth + anti-detection'),
+					'proxy':       _('Anti-detection + proxy (OpenClash)')
+				};
+				var mode = modeNames[st.mode] || st.mode || '-';
+				var parts = [];
+				if (st.mode && st.mode !== 'normal') {
+					parts.push('UA3F: ' + (st.ua3f_running ? _('on') : _('off')));
+					parts.push('OpenClash: ' + (st.openclash_running ? _('on') : _('off')));
+					parts.push(_('Hardening') + ': ' + (st.hardening ? _('on') : _('off')));
+					mode += ' (' + parts.join(', ') + ')';
+				}
+
 				var last = '-';
 				if (st.last_time)
 					last = '%s · %s%s'.format(st.last_time, fmtResult(st.last_result),
@@ -108,6 +122,10 @@ return view.extend({
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Campus IP')),
 						E('td', { 'class': 'td' }, st.user_ip || '-')
+					]),
+					E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td' }, _('Protection mode')),
+						E('td', { 'class': 'td' }, mode)
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td' }, _('Background service')),

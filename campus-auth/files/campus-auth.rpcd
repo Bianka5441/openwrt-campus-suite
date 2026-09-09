@@ -16,6 +16,7 @@
 LOG=/var/log/campus-auth.log
 STATE=/tmp/campus-auth.state
 MARKER=/etc/campus-auth.reason55
+FW_USER=/etc/firewall.user
 CHECK_DEFAULT='http://connectivitycheck.platform.hicloud.com/generate_204'
 
 state_var() {
@@ -28,6 +29,7 @@ load_config() {
 	config_get CHECK_URL config check_url "$CHECK_DEFAULT"
 	config_get AUTH_HOST config auth_host '192.168.99.2'
 	config_get INTERFACE config interface ''
+	config_get MODE config mode 'normal'
 }
 
 probe() {
@@ -70,6 +72,10 @@ get_status() {
 	json_add_string user_ip "$(user_ip)"
 	json_add_string auth_host "$AUTH_HOST"
 	json_add_string check_url "$CHECK_URL"
+	json_add_string mode "$MODE"
+	json_add_boolean ua3f_running "$(netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo 1 || echo 0)"
+	json_add_boolean openclash_running "$(pgrep -f openclash >/dev/null 2>&1 && echo 1 || echo 0)"
+	json_add_boolean hardening "$(grep -q 'campus-auth hardening' "$FW_USER" 2>/dev/null && echo 1 || echo 0)"
 	json_add_string last_time "$(state_var time)"
 	json_add_string last_result "$(state_var result)"
 	json_add_string last_message "$(state_var message)"

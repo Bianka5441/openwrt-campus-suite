@@ -18,7 +18,15 @@ return view.extend({
 			var s = m.section(form.NamedSection, 'config', 'campus-auth', _('General Settings'));
 			s.addremove = false;
 
-			var o = s.option(form.Flag, 'enabled', _('Enable background service'));
+			var o = s.option(form.ListValue, 'mode', _('Protection mode'));
+			o.value('normal', _('Normal router (authentication only)'));
+			o.value('anti-detect', _('Campus auth + anti-detection'));
+			o.value('proxy', _('Anti-detection + proxy (OpenClash)'));
+			o.default = 'normal';
+			o.rmempty = false;
+			o.description = _('normal: automatic authentication only. anti-detect: additionally unifies the User-Agent (UA3F), rewrites TTL, redirects NTP/DNS through the router and turns LAN IPv6 off. proxy: additionally runs OpenClash for actual proxying - the subscription and nodes stay managed inside OpenClash itself. Applied on Save & Apply and at boot.');
+
+			o = s.option(form.Flag, 'enabled', _('Enable background service'));
 			o.default = o.enabled;
 			o.rmempty = false;
 			o.description = _('Continuously probe connectivity and re-authenticate automatically after disconnects.');

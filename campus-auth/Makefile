@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=campus-auth
-PKG_VERSION:=1.0.3
+PKG_VERSION:=1.0.4
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Bianka5441
@@ -47,6 +47,7 @@ define Package/campus-auth/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./files/campus-auth.sh $(1)/usr/bin/campus-auth
 	$(INSTALL_BIN) ./files/campus-auth-loop.sh $(1)/usr/bin/campus-auth-loop
+	$(INSTALL_BIN) ./files/campus-auth-mode.sh $(1)/usr/bin/campus-auth-mode
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/campus-auth.init $(1)/etc/init.d/campus-auth
@@ -57,6 +58,9 @@ define Package/campus-auth/install
 	$(INSTALL_DIR) $(1)/usr/share/campus-auth/proto
 	$(INSTALL_DATA) ./files/proto-gportal.sh $(1)/usr/share/campus-auth/proto/gportal.sh
 	$(INSTALL_DATA) ./files/proto-ruijie.sh $(1)/usr/share/campus-auth/proto/ruijie.sh
+
+	$(INSTALL_DIR) $(1)/usr/share/campus-auth
+	$(INSTALL_DATA) ../docs/openclash-ua3f.yaml $(1)/usr/share/campus-auth/openclash-ua3f.yaml
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/campus-auth.config $(1)/etc/config/campus-auth
