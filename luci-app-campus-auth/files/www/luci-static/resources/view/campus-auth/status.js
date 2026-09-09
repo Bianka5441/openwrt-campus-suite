@@ -33,7 +33,7 @@ var callResume = rpc.declare({
 });
 
 var modeInfo = {
-	normal:      { name: '普通路由器模式', color: '#9e9e9e', desc: '仅校园网自动登录，无伪装、无代理' },
+	normal:      { name: '普通路由器模式', color: '#9e9e9e', desc: '纯路由器：不自动登录校园网，无伪装、无代理' },
 	'anti-detect': { name: '反检测模式',   color: '#1e88e5', desc: '统一 UA / TTL · NTP·DNS 走路由器 · IPv6 已关闭' },
 	proxy:       { name: '反检测 + 梯子模式', color: '#43a047', desc: '反检测全部功能 + OpenClash 代理运行中' }
 };
@@ -135,7 +135,9 @@ return view.extend({
 				}
 
 				var svc;
-				if (st.service_enabled)
+				if (st.mode === 'normal')
+					svc = '普通路由器模式：不认证（需要时可手动点「立即认证」）';
+				else if (st.service_enabled)
 					svc = st.service_running ? '运行中' : '未运行';
 				else
 					svc = '已停用';

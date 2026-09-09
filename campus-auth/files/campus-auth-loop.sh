@@ -77,11 +77,11 @@ in_quiet_window() {
 
 FAILS=0
 
-# Auto-authentication can be switched off entirely (normal-router use);
-# the service then only applies the protection mode on start.
-config_get AUTO_AUTH config auto_auth 1
-if [ "$AUTO_AUTH" != 1 ]; then
-	log 'automatic authentication disabled (auto_auth=0); loop exiting'
+# Normal-router mode never authenticates; the loop is only started for
+# anti-detect/proxy modes (see the init script).
+config_get LOOP_MODE config mode 'normal'
+if [ "$LOOP_MODE" = normal ]; then
+	log 'mode normal: plain router, authentication disabled; loop exiting'
 	exit 0
 fi
 

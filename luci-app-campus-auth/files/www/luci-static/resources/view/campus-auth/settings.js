@@ -9,26 +9,26 @@ var callInterfaces = rpc.declare({
 	expect: { devices: [] }
 });
 
-var modeCards = [
-	{
-		title: '① 普通路由器',
-		value: 'normal',
-		color: '#9e9e9e',
-		lines: ['只做校园网自动登录', '不做任何伪装和代理', '适合：学校不查多设备']
-	},
-	{
-		title: '② 认证 + 反检测',
-		value: 'anti-detect',
-		color: '#1e88e5',
-		lines: ['自动登录 + 防多设备检测', '统一 UA / TTL，NTP·DNS 走路由器', '关闭 LAN IPv6，不装梯子']
-	},
-	{
-		title: '③ 反检测 + 梯子',
-		value: 'proxy',
-		color: '#43a047',
-		lines: ['反检测全部功能 + OpenClash', '订阅、节点在 OpenClash 里管理', '当前推荐模式']
-	}
-];
+	var modeCards = [
+		{
+			title: '① 普通路由器',
+			value: 'normal',
+			color: '#9e9e9e',
+			lines: ['纯路由器，不登录校园网', '无伪装、无代理、无自动认证', '适合：学校不查多设备或不用校园网认证']
+		},
+		{
+			title: '② 认证 + 反检测',
+			value: 'anti-detect',
+			color: '#1e88e5',
+			lines: ['自动登录 + 防多设备检测', '统一 UA / TTL，NTP·DNS 走路由器', '关闭 LAN IPv6，不装梯子']
+		},
+		{
+			title: '③ 反检测 + 梯子',
+			value: 'proxy',
+			color: '#43a047',
+			lines: ['反检测全部功能 + OpenClash', '订阅、节点在 OpenClash 里管理', '当前推荐模式']
+		}
+	];
 
 return view.extend({
 	render: function() {
@@ -56,21 +56,17 @@ return view.extend({
 			s1.addremove = false;
 
 			var o = s1.option(form.ListValue, 'mode', '当前模式');
-			o.value('normal', '① 普通路由器（仅自动认证）');
+			o.value('normal', '① 普通路由器（不认证、不伪装）');
 			o.value('anti-detect', '② 校园网认证 + 反检测');
 			o.value('proxy', '③ 反检测 + 梯子（OpenClash）');
 			o.default = 'normal';
 			o.rmempty = false;
+			o.description = '选「①」就是纯普通路由器：不自动登录校园网、不装任何伪装（临时需要时可手动点状态页的「立即认证」）。选「②/③」才启用自动登录。切换在保存后和开机时自动生效。';
 
 			o = s1.option(form.Flag, 'enabled', '启用后台守护');
 			o.default = o.enabled;
 			o.rmempty = false;
-			o.description = '每分钟检查一次门户状态，掉线自动重连。';
-
-			o = s1.option(form.Flag, 'auto_auth', '自动认证');
-			o.default = o.enabled;
-			o.rmempty = false;
-			o.description = '关闭后不做任何自动认证，路由器当普通路由器用（状态页仍可看联网状态，也可手动点「立即认证」）。选「① 普通路由器」模式或账号配额紧张时建议关闭。';
+			o.description = '每分钟检查一次门户状态，掉线自动重连（仅 ②/③ 模式运行）。';
 
 			var s2 = m.section(form.NamedSection, 'config', 'campus-auth', '账号与认证');
 			s2.addremove = false;

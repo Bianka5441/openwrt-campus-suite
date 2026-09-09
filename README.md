@@ -186,8 +186,8 @@ curl http://httpbin.org/user-agent
 
 | 模式 | 做什么 | 适合谁 |
 |---|---|---|
-| `normal` 普通路由器 | 只做校园网自动认证，不装任何伪装 | 学校不查多设备 |
-| `anti-detect` 认证+反检测 | 认证 + UA3F 统一 UA + TTL/NTP/DNS 加固 + 关 LAN IPv6 | 查多设备、不需要梯子 |
+| `normal` 普通路由器 | **纯路由器：不自动登录校园网**，停掉 UA3F/OpenClash、撤掉加固规则、恢复 IPv6 | 不需要认证功能时 |
+| `anti-detect` 认证+反检测 | 自动登录 + UA3F 统一 UA + TTL/NTP/DNS 加固 + 关 LAN IPv6 | 查多设备、不需要梯子 |
 | `proxy` 反检测+梯子 | anti-detect 全部 + 启动 OpenClash | 当前作者路由器的模式 |
 
 说明：
