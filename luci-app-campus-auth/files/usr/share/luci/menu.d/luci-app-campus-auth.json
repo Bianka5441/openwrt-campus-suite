@@ -1,6 +1,6 @@
 {
 	"admin/services/campus-auth": {
-		"title": "Campus Auth",
+		"title": "校园网认证",
 		"order": 65,
 		"action": {
 			"type": "alias",
@@ -12,7 +12,7 @@
 	},
 
 	"admin/services/campus-auth/status": {
-		"title": "Status",
+		"title": "运行状态",
 		"order": 10,
 		"action": {
 			"type": "view",
@@ -21,7 +21,7 @@
 	},
 
 	"admin/services/campus-auth/settings": {
-		"title": "Settings",
+		"title": "参数设置",
 		"order": 20,
 		"action": {
 			"type": "view",
