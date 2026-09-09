@@ -126,7 +126,10 @@ rc=$?
 case "$rc" in
 	0)
 		write_state success 'authenticated'
-		log "authentication succeeded for ${USERNAME} (${PROTOCOL})"
+		# Log the WAN IP with every success: portals that count a changed
+		# address as a new device burn a binding slot per re-login, and
+		# this line is the evidence for that correlation.
+		log "authentication succeeded for ${USERNAME} (${PROTOCOL}) wan_ip=${USER_IP:-unknown}"
 		exit 0
 		;;
 	55)

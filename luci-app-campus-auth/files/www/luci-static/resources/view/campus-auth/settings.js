@@ -64,6 +64,25 @@ return view.extend({
 			o.datatype = 'range(30,3600)';
 			o.default = '60';
 
+			o = s.option(form.Flag, 'quiet_enable', _('Nightly quiet window'));
+			o.default = o.enabled;
+			o.description = _('Make no portal requests during the scheduled nightly outage (checks and logins both). Every re-login after an outage can consume a device-binding slot, so logins must stay rare.');
+
+			o = s.option(form.Value, 'quiet_start', _('Quiet window start'));
+			o.placeholder = '00:00';
+			o.datatype = 'time';
+			o.description = _('Campus network goes offline at this time (HH:MM).');
+
+			o = s.option(form.Value, 'quiet_end', _('Quiet window end'));
+			o.placeholder = '06:00';
+			o.datatype = 'time';
+			o.description = _('Campus network comes back at this time (HH:MM); the first login happens shortly after.');
+
+			o = s.option(form.Value, 'login_holdoff', _('Holdoff after failed login (seconds)'));
+			o.datatype = 'range(60,86400)';
+			o.default = '900';
+			o.description = _('Wait this long after a rejected login before trying again, so a persistent reject (e.g. device-binding quota exhausted) does not hammer the portal.');
+
 			return m.render();
 		});
 	}
