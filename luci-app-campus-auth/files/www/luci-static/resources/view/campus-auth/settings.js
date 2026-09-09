@@ -133,7 +133,11 @@ return view.extend({
 			o.default = '900';
 			o.description = '被门户拒绝（如绑定配额用完）后，等多久再试，避免反复撞墙。';
 
-			return E([ cards, m.render() ]);
+			// DOM.append cannot handle Promise children, so the cards are
+			// attached to the fully rendered map instead of E([cards, m.render()]).
+			return m.render().then(function(mapEl) {
+				return E([ cards, mapEl ]);
+			});
 		});
 	}
 });
