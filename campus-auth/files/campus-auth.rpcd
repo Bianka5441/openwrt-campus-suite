@@ -114,7 +114,7 @@ authenticate() {
 	json_init
 	if [ -e "$PAUSE" ] && [ "$(cat "$PAUSE" 2>/dev/null)" = "$(date +%F)" ]; then
 		json_add_boolean result 0
-		json_add_string message 'authentication paused for today (quota protection); press 恢复今日认证 to re-enable'
+		json_add_string message '今日已暂停认证（配额保护）；如需现在认证，请先点「恢复今日认证」'
 	elif [ -e "$MARKER" ]; then
 		json_add_boolean result 0
 		json_add_string message 'authentication paused by the portal (reason 55); remove /etc/campus-auth.reason55 after the 15-minute cooldown and retry'
