@@ -24,6 +24,7 @@
 LOG=/var/log/campus-auth.log
 STATE=/tmp/campus-auth.state
 MARKER=/etc/campus-auth.reason55
+PAUSE=/etc/campus-auth.pause
 # Keep the UA aligned with the UA unified by UA3F on the same network.
 UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
 
@@ -76,6 +77,21 @@ TMP=/tmp/campus-auth.$$
 trap 'rm -f "$TMP".*' EXIT INT TERM
 
 MODE="$1"
+
+# Quota-pause helpers: --pause-today suspends every authentication attempt
+# until midnight (e.g. device-binding quota exhausted), --resume clears it.
+if [ "$MODE" = "--pause-today" ]; then
+	date +%F > "$PAUSE"
+	log 'automatic authentication paused by administrator for today'
+	echo "paused until $(date +%F) 23:59:59"
+	exit 0
+fi
+if [ "$MODE" = "--resume" ]; then
+	rm -f "$PAUSE"
+	log 'automatic authentication resumed by administrator'
+	echo 'resumed'
+	exit 0
+fi
 
 # While the cooldown marker exists, no login attempt is made;
 # state checks (--check) are still allowed.

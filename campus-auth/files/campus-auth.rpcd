@@ -16,6 +16,7 @@
 LOG=/var/log/campus-auth.log
 STATE=/tmp/campus-auth.state
 MARKER=/etc/campus-auth.reason55
+PAUSE=/etc/campus-auth.pause
 FW_USER=/etc/firewall.user
 CHECK_DEFAULT='http://connectivitycheck.platform.hicloud.com/generate_204'
 
@@ -76,6 +77,7 @@ get_status() {
 	json_add_boolean ua3f_running "$(netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo 1 || echo 0)"
 	json_add_boolean openclash_running "$(pgrep -f openclash >/dev/null 2>&1 && echo 1 || echo 0)"
 	json_add_boolean hardening "$(grep -q 'campus-auth hardening' "$FW_USER" 2>/dev/null && echo 1 || echo 0)"
+	json_add_boolean paused_today "$([ -e "$PAUSE" ] && [ "$(cat "$PAUSE" 2>/dev/null)" = "$(date +%F)" ] && echo 1 || echo 0)"
 	json_add_string last_time "$(state_var time)"
 	json_add_string last_result "$(state_var result)"
 	json_add_string last_message "$(state_var message)"
@@ -110,7 +112,10 @@ interfaces() {
 
 authenticate() {
 	json_init
-	if [ -e "$MARKER" ]; then
+	if [ -e "$PAUSE" ] && [ "$(cat "$PAUSE" 2>/dev/null)" = "$(date +%F)" ]; then
+		json_add_boolean result 0
+		json_add_string message 'authentication paused for today (quota protection); press 恢复今日认证 to re-enable'
+	elif [ -e "$MARKER" ]; then
 		json_add_boolean result 0
 		json_add_string message 'authentication paused by the portal (reason 55); remove /etc/campus-auth.reason55 after the 15-minute cooldown and retry'
 	elif [ ! -x /usr/bin/campus-auth ]; then
@@ -125,6 +130,34 @@ authenticate() {
 	json_dump
 }
 
+pause_today() {
+	json_init
+	[ -x /usr/bin/campus-auth ] || {
+		json_add_boolean result 0
+		json_add_string message 'campus-auth not installed'
+		json_dump
+		return
+	}
+	/usr/bin/campus-auth --pause-today >/dev/null 2>&1
+	json_add_boolean result 1
+	json_add_string message 'automatic authentication paused for today; it resumes at midnight'
+	json_dump
+}
+
+resume_auth() {
+	json_init
+	[ -x /usr/bin/campus-auth ] || {
+		json_add_boolean result 0
+		json_add_string message 'campus-auth not installed'
+		json_dump
+		return
+	}
+	/usr/bin/campus-auth --resume >/dev/null 2>&1
+	json_add_boolean result 1
+	json_add_string message 'automatic authentication resumed'
+	json_dump
+}
+
 case "$1" in
 	list)
 		json_init
@@ -136,6 +169,10 @@ case "$1" in
 		json_add_object 'interfaces'
 		json_close_object
 		json_add_object 'authenticate'
+		json_close_object
+		json_add_object 'pause_today'
+		json_close_object
+		json_add_object 'resume_auth'
 		json_close_object
 		json_dump
 		json_cleanup
@@ -157,6 +194,12 @@ case "$1" in
 				;;
 			authenticate)
 				authenticate
+				;;
+			pause_today)
+				pause_today
+				;;
+			resume_auth)
+				resume_auth
 				;;
 		esac
 		;;

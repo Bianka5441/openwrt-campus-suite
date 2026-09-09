@@ -40,11 +40,25 @@ case "$HOLDOFF" in ''|*[!0-9]*) HOLDOFF=900;; esac
 
 MARKER=/etc/campus-auth.reason55
 ONLINE_MARKER=/tmp/campus-auth.await-online
+PAUSE=/etc/campus-auth.pause
 LOG=/var/log/campus-auth.log
 # Portal-ordered cooldowns (reasoncode:55) last 15 minutes.
 COOLDOWN_SECS=900
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
+
+# True while the pause marker still names today (quota exhausted, user
+# requested no authentication for the rest of the day). A stale marker
+# from a previous day is removed so authentication resumes automatically.
+paused_today() {
+	[ -e "$PAUSE" ] || return 1
+	if [ "$(cat "$PAUSE" 2>/dev/null)" = "$(date +%F)" ]; then
+		return 0
+	fi
+	rm -f "$PAUSE"
+	log 'pause marker expired; resuming automatic authentication'
+	return 1
+}
 
 # True while the campus network is in its scheduled off window.
 # Handles windows that span midnight (start > end); equal values disable.
@@ -63,7 +77,21 @@ in_quiet_window() {
 
 FAILS=0
 
+# Auto-authentication can be switched off entirely (normal-router use);
+# the service then only applies the protection mode on start.
+config_get AUTO_AUTH config auto_auth 1
+if [ "$AUTO_AUTH" != 1 ]; then
+	log 'automatic authentication disabled (auto_auth=0); loop exiting'
+	exit 0
+fi
+
 while :; do
+	if paused_today; then
+		FAILS=0
+		sleep "$INTERVAL"
+		continue
+	fi
+
 	if in_quiet_window; then
 		FAILS=0
 		sleep "$INTERVAL"

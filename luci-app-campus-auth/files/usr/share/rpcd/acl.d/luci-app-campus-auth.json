@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"campus-auth": [ "authenticate" ]
+				"campus-auth": [ "authenticate", "pause_today", "resume_auth" ]
 			},
 			"uci": [ "campus-auth" ]
 		}

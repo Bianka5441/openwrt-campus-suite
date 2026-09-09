@@ -67,6 +67,11 @@ return view.extend({
 			o.rmempty = false;
 			o.description = '每分钟检查一次门户状态，掉线自动重连。';
 
+			o = s1.option(form.Flag, 'auto_auth', '自动认证');
+			o.default = o.enabled;
+			o.rmempty = false;
+			o.description = '关闭后不做任何自动认证，路由器当普通路由器用（状态页仍可看联网状态，也可手动点「立即认证」）。选「① 普通路由器」模式或账号配额紧张时建议关闭。';
+
 			var s2 = m.section(form.NamedSection, 'config', 'campus-auth', '账号与认证');
 			s2.addremove = false;
 
