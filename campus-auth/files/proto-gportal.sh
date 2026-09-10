@@ -189,6 +189,9 @@ proto_login() {
 				return 1
 			fi
 			log "portal offers rebind of our own binding (${BINDMAC}); confirming via reBindMac"
+			# The portal rate-limits consecutive operations ("操作过于
+			# 频繁,请5秒后再试"): pace the rebind and the follow-up login.
+			sleep 6
 			FORM=$(gportal_build_form "$BINDMAC")
 			gportal_post_encrypted "/gportal/web/reBindMac" || {
 				log 'rebind request failed'
@@ -204,6 +207,7 @@ proto_login() {
 			esac
 			# Rebind accepted: run a fresh login (new page -> new sign/iv)
 			# to bring the session up.
+			sleep 6
 			gportal_fetch_login_page || return 2
 			FORM=$(gportal_build_form "")
 			gportal_post_encrypted "/gportal/web/authLogin" || {
