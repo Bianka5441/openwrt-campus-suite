@@ -122,6 +122,16 @@ else
 	USER_IP=$(ip -4 route get "$AUTH_HOST" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
 fi
 
+# MAC of the campus-facing interface. The portal identifies "devices" by
+# it, and a reasoncode:43 rebind offer is only auto-accepted when it
+# names this very MAC (never another device's).
+if [ -n "$INTERFACE" ]; then
+	OWN_MAC=$(ip link show dev "$INTERFACE" | awk '/link\/ether/{print $2; exit}')
+else
+	DEV=$(ip -4 route get "$AUTH_HOST" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+	[ -n "$DEV" ] && OWN_MAC=$(ip link show dev "$DEV" | awk '/link\/ether/{print $2; exit}')
+fi
+
 PROTO_FILE="/usr/share/campus-auth/proto/${PROTOCOL}.sh"
 if [ ! -r "$PROTO_FILE" ]; then
 	log "unknown protocol '$PROTOCOL'"

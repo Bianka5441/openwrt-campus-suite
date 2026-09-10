@@ -6,9 +6,17 @@
 # key via UCI "aes_key") and POST to /gportal/web/authLogin.
 # State checks POST userIp+sign to /gportal/web/queryAuthState.
 #
+# Rebinding (reasoncode:43): when the portal answers "already bound to
+# another device, rebind to this one?" it includes the bound MAC. The
+# web page answers by re-posting the same form with userMac=<bindmac> to
+# /gportal/web/reBindMac. We only accept the offer when bindmac equals
+# this router's own campus-facing MAC - the portal then simply moves our
+# existing binding to the current location and no other device is
+# affected. Offers naming a different device are reported and refused.
+#
 # Expects from the dispatcher: MODE, USERNAME, PASSWORD, AUTH_HOST, NAS_NAME,
-# AES_KEY, CHECK_URL, CURL_IF, USER_IP, TMP, UA; helpers log/write_state/
-# urlencode/field.
+# AES_KEY, CHECK_URL, CURL_IF, USER_IP, OWN_MAC, TMP, UA; helpers
+# log/write_state/urlencode/field.
 
 gportal_require_ip() {
 	[ -n "$USER_IP" ] || {
@@ -68,30 +76,36 @@ proto_check() {
 	esac
 }
 
-proto_login() {
-	gportal_require_ip || return $?
-	gportal_fetch_login_page || return $?
+# Build the serialized login form. $1 = userMac value (empty normally,
+# the portal-provided bindmac for a rebind).
+gportal_build_form() {
+	printf 'nasName=%s&nasIp=&userIp=%s&userMac=%s&ssid=&apMac=&pid=%s&vlan=%s&sign=%s&iv=%s&redirectUrl=%s&portalTemplateId=%s&show_type=0&account_type=&name=%s&password=%s' \
+		"$(urlencode "$NAS_NAME")" \
+		"$(urlencode "$USER_IP")" \
+		"$(urlencode "$1")" \
+		"$(urlencode "$PID")" \
+		"$(urlencode "$VLAN")" \
+		"$(urlencode "$SIGN")" \
+		"$(urlencode "$IV")" \
+		"$(urlencode "$REDIRECT")" \
+		"$(urlencode "$TEMPLATE")" \
+		"$(urlencode "$USERNAME")" \
+		"$(urlencode "$PASSWORD")"
+}
 
-	IV=$(field iv)
-	REDIRECT=$(field redirectUrl)
-	TEMPLATE=$(field portalTemplateId)
-	PID=$(field pid)
-	VLAN=$(field vlan)
-	[ "${#IV}" -eq 16 ] || {
-		log 'login page missing sign/iv'
-		write_state failed 'login page missing sign/iv'
-		return 2
-	}
-
-	FORM="nasName=$(urlencode "$NAS_NAME")&nasIp=&userIp=$(urlencode "$USER_IP")&userMac=&ssid=&apMac=&pid=$(urlencode "$PID")&vlan=$(urlencode "$VLAN")&sign=$(urlencode "$SIGN")&iv=$(urlencode "$IV")&redirectUrl=$(urlencode "$REDIRECT")&portalTemplateId=$(urlencode "$TEMPLATE")&show_type=0&account_type=&name=$(urlencode "$USERNAME")&password=$(urlencode "$PASSWORD")"
+# Encrypt the serialized form (AES-128-CBC, ZeroPadding, per-session IV)
+# and POST it to $1. Sets RESPONSE; the per-session IV is urlencoded in
+# the body exactly like the web page does.
+gportal_post_encrypted() {
+	ENDPOINT="$1"
 
 	printf '%s' "$FORM" > "$TMP.plain"
 	LEN=$(wc -c < "$TMP.plain")
 	PAD=$((16 - LEN % 16))
 	dd if=/dev/zero bs=1 count="$PAD" >> "$TMP.plain" 2>/dev/null
 
-	# AES-128-CBC, ZeroPadding, key from UCI "aes_key" (ASCII form,
-	# converted to hex here -- no `od` on stock OpenWrt), per-session IV.
+	# AES key from UCI "aes_key" (ASCII form, converted to hex here --
+	# no `od` on stock OpenWrt).
 	KEY=$(printf '%s' "$AES_KEY" | awk '
 		BEGIN {
 			for (i = 1; i <= 255; i++)
@@ -112,9 +126,12 @@ proto_login() {
 			4) IV_HEX="${IV_HEX}34";; 5) IV_HEX="${IV_HEX}35";;
 			6) IV_HEX="${IV_HEX}36";; 7) IV_HEX="${IV_HEX}37";;
 			8) IV_HEX="${IV_HEX}38";; 9) IV_HEX="${IV_HEX}39";;
-			a) IV_HEX="${IV_HEX}61";; b) IV_HEX="${IV_HEX}62";;
-			c) IV_HEX="${IV_HEX}63";; d) IV_HEX="${IV_HEX}64";;
-			e) IV_HEX="${IV_HEX}65";; f) IV_HEX="${IV_HEX}66";;
+			a) IV_HEX="${IV_HEX}61";;
+			b) IV_HEX="${IV_HEX}62";;
+			c) IV_HEX="${IV_HEX}63";;
+			d) IV_HEX="${IV_HEX}64";;
+			e) IV_HEX="${IV_HEX}65";;
+			f) IV_HEX="${IV_HEX}66";;
 			*) REJECT_MSG='invalid IV'; return 2;;
 		esac
 		i=$((i + 1))
@@ -135,15 +152,77 @@ proto_login() {
 		-H "Referer: ${LOGIN_URL}" \
 		--cookie "$TMP.cookie" \
 		--data "data=${DATA}&iv=${IV}" \
-		"http://${AUTH_HOST}/gportal/web/authLogin?round=$(( $(date +%s) % 1001 ))") || {
+		"http://${AUTH_HOST}${ENDPOINT}?round=$(( $(date +%s) % 1001 ))")
+}
+
+proto_login() {
+	gportal_require_ip || return $?
+	gportal_fetch_login_page || return $?
+
+	IV=$(field iv)
+	REDIRECT=$(field redirectUrl)
+	TEMPLATE=$(field portalTemplateId)
+	PID=$(field pid)
+	VLAN=$(field vlan)
+	[ "${#IV}" -eq 16 ] || {
+		log 'login page missing sign/iv'
+		write_state failed 'login page missing sign/iv'
+		return 2
+	}
+
+	FORM=$(gportal_build_form "")
+	gportal_post_encrypted "/gportal/web/authLogin" || {
 		log 'authentication request failed'
 		REJECT_MSG='authentication request failed'
 		return 1
 	}
 
 	case "$RESPONSE" in
-		*'"status":1'*) return 0;;
-		*'"reasoncode":55'*) return 55;;
+		*'"status":1'*)
+			return 0
+			;;
+		*'"reasoncode":43'*)
+			BINDMAC=$(printf '%s' "$RESPONSE" | sed -n 's/.*"bindmac":"\([^"]*\)".*/\1/p' | head -n 1)
+			if [ "$BINDMAC" != "$OWN_MAC" ]; then
+				log "portal offers rebind to foreign device ${BINDMAC:-unknown}; refusing"
+				REJECT_MSG="portal wants rebind to another device (${BINDMAC:-unknown}); confirm manually in a browser"
+				return 1
+			fi
+			log "portal offers rebind of our own binding (${BINDMAC}); confirming via reBindMac"
+			FORM=$(gportal_build_form "$BINDMAC")
+			gportal_post_encrypted "/gportal/web/reBindMac" || {
+				log 'rebind request failed'
+				REJECT_MSG='rebind request failed'
+				return 1
+			}
+			case "$RESPONSE" in
+				*'"status":0'*)
+					REJECT_MSG="portal refused the rebind: $(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-200)"
+					log "rebind refused: $RESPONSE"
+					return 1
+					;;
+			esac
+			# Rebind accepted: run a fresh login (new page -> new sign/iv)
+			# to bring the session up.
+			gportal_fetch_login_page || return 2
+			FORM=$(gportal_build_form "")
+			gportal_post_encrypted "/gportal/web/authLogin" || {
+				log 'post-rebind login request failed'
+				REJECT_MSG='post-rebind login request failed'
+				return 1
+			}
+			case "$RESPONSE" in
+				*'"status":1'*) return 0;;
+				*'"reasoncode":55'*) return 55;;
+				*)
+					REJECT_MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-240)
+					return 1
+					;;
+			esac
+			;;
+		*'"reasoncode":55'*)
+			return 55
+			;;
 		*)
 			REJECT_MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-240)
 			return 1
