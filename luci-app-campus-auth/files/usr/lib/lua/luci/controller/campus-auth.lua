@@ -36,6 +36,13 @@ function render_status()
 	require("luci.template").render("footer")
 end
 
+-- Bare status fragment (no theme wrap); the status page polls this via XHR
+-- and swaps only its content area, so the page never blanks on reload.
+function render_fragment()
+	luci.http.prepare_content("text/html; charset=utf-8")
+	require("luci.template").render("campus-auth/status_content")
+end
+
 function action_auth()
 	if paused_today() then
 		-- respect the quota-pause; make no portal requests
@@ -81,6 +88,9 @@ function index()
 
 	entry({"admin", "services", "campus-auth", "status"},
 		call("render_status"), "运行状态", 10).dependent = false
+
+	entry({"admin", "services", "campus-auth", "fragment"},
+		call("render_fragment")).leaf = true
 
 	entry({"admin", "services", "campus-auth", "settings"},
 		cbi("campus-auth/settings"), "参数设置", 20).dependent = false

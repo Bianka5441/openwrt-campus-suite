@@ -1,0 +1,128 @@
+<%
+local sys = require "luci.sys"
+local uci = require "luci.model.uci".cursor()
+
+local function sh(cmd)
+    local f = io.popen(cmd .. " 2>/dev/null")
+    if not f then return "" end
+    local out = f:read("*a") or ""
+    f:close()
+    return out
+end
+
+local function file_line(p)
+    local f = io.open(p, "r")
+    if not f then return "" end
+    local v = f:read("*l") or ""
+    f:close()
+    return v
+end
+
+-- config
+local mode = uci:get("campus-auth", "config", "mode") or "normal"
+local auth_host = uci:get("campus-auth", "config", "auth_host") or "-"
+local check_url = uci:get("campus-auth", "config", "check_url") or "http://connectivitycheck.platform.hicloud.com/generate_204"
+
+-- state file
+local st_time = ""
+local st_result = ""
+local st_msg = ""
+local st_ip = ""
+do
+    local f = io.open("/tmp/campus-auth.state", "r")
+    if f then
+        for line in f:lines() do
+            local k, v = line:match("^(%w+)=(.*)$")
+            if k == "time" then st_time = v
+            elseif k == "result" then st_result = v
+            elseif k == "message" then st_msg = v
+            elseif k == "user_ip" then st_ip = v end
+        end
+        f:close()
+    end
+end
+
+-- probes
+local http_code = sh(string.format("curl -s -o /dev/null -m 6 -w '%%{http_code}' '%s'", check_url)):gsub("%s+", "")
+local online = (http_code == "204")
+local ua3f_on = sh("netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo y || echo n"):find("y") ~= nil
+local oclash_on = sh("pgrep -f openclash >/dev/null && echo y || echo n"):find("y") ~= nil
+local loop_on = sh("ps w | grep '[c]ampus-auth-loop' >/dev/null && echo y || echo n"):find("y") ~= nil
+local hardening_on = sh("grep -q 'campus-auth hardening' /etc/firewall.user && echo y || echo n"):find("y") ~= nil
+local paused = file_line("/etc/campus-auth.pause") == os.date("%Y-%m-%d")
+
+local mode_names = {
+    normal = "普通路由器模式",
+    ["anti-detect"] = "反检测模式",
+    proxy = "反检测 + 梯子模式"
+}
+local mode_colors = { normal = "#9e9e9e", ["anti-detect"] = "#1e88e5", proxy = "#43a047" }
+local mname = mode_names[mode] or mode
+local mcolor = mode_colors[mode] or "#9e9e9e"
+
+local function chip(label, on, ytext, ntext)
+    local color = on and "#43a047" or "#e53935"
+    local text = on and (ytext or "运行中") or (ntext or "已停止")
+    return string.format('<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 10px;border-radius:12px;border:1px solid %s;color:%s;font-size:90%%">%s：%s</span>', color, color, label, text)
+end
+
+local chips = {}
+if mode and mode ~= "normal" then
+    chips[#chips+1] = chip("网络", online, "已联网", "未认证")
+    chips[#chips+1] = chip("UA 统一 (UA3F)", ua3f_on)
+    chips[#chips+1] = chip("TTL/NTP/DNS 加固", hardening_on, "已生效", "未生效")
+    if mode == "proxy" then
+        chips[#chips+1] = chip("OpenClash 梯子", oclash_on)
+    end
+else
+    chips[#chips+1] = chip("网络", online, "已联网", "未认证")
+end
+
+local svc
+if mode == "normal" then
+    svc = "普通路由器模式：不认证（需要时可手动点「立即认证」）"
+else
+    svc = loop_on and "运行中" or "未运行"
+    if paused then svc = svc .. " · 今日已暂停自动认证（配额保护）" end
+end
+
+local result_cn = ({success="成功", failed="失败", cooldown="门户暂停"})[st_result] or "-"
+local last = "-"
+if st_time ~= "" then
+    last = st_time .. " · " .. result_cn .. (st_msg ~= "" and (" — " .. st_msg) or "")
+end
+
+local log_tail = sh("tail -n 60 /var/log/campus-auth.log")
+local base = luci.dispatcher.build_url("admin/services/campus-auth")
+-%>
+
+<h2>校园网认证状态</h2>
+<div class="cbi-map-descr">当前防护模式与各组件运行状态显示在顶部；切换模式请到「参数设置」页。</div>
+
+<div style="border-left:6px solid <%=mcolor%>;border-radius:6px;padding:12px 16px;margin:10px 0;background:rgba(255,255,255,.65)">
+    <div style="font-size:130%;font-weight:bold;color:<%=mcolor%>"><%=mname%></div>
+    <div style="margin-top:6px"><%=table.concat(chips, " ")%></div>
+</div>
+
+<table class="table" cellspacing="0" border="0">
+    <tr><td width="33%">网络状态</td><td><% if online then %>已联网（HTTP 204）<% else %>无网络（HTTP <%=http_code%>）<% end %></td></tr>
+    <tr><td>门户服务器</td><td><%=auth_host%></td></tr>
+    <tr><td>校园网 IP</td><td><%=(st_ip ~= "" and st_ip or "-")%></td></tr>
+    <tr><td>后台守护</td><td><%=svc%></td></tr>
+    <tr><td>最近一次认证</td><td style="word-break:break-all"><%=last%></td></tr>
+</table>
+
+<div style="margin:10px 0">
+    <form method="post" action="<%=base%>/auth" style="display:inline">
+        <input type="submit" class="cbi-button cbi-button-action" value="立即认证">
+    </form>
+    <form method="post" action="<%=base%>/pause" style="display:inline">
+        <input type="submit" class="cbi-button cbi-button-negative" value="今日暂停认证" onclick="return confirm('暂停后今天不再自动认证，午夜自动恢复。确定？')">
+    </form>
+    <form method="post" action="<%=base%>/resume" style="display:inline">
+        <input type="submit" class="cbi-button cbi-button-positive" value="恢复今日认证">
+    </form>
+</div>
+
+<h3>认证日志</h3>
+<pre style="max-height:24em;overflow:auto;white-space:pre-wrap;padding:.6em;border:1px solid #d4d4d4;font-size:.9em"><%=(log_tail ~= "" and log_tail or "暂无日志。")%></pre>

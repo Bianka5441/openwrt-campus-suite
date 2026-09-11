@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "1.0.12-r1"
+VERSION = "1.0.13-r2"
 
 
 def tar_gz(entries):
@@ -115,6 +115,8 @@ PACKAGES = [
              "luci-app-campus-auth/files/usr/lib/lua/luci/model/cbi/campus-auth/settings.lua", 0o644),
             ("usr/lib/lua/luci/view/campus-auth/status.htm",
              "luci-app-campus-auth/files/usr/lib/lua/luci/view/campus-auth/status.htm", 0o644),
+            ("usr/lib/lua/luci/view/campus-auth/status_content.htm",
+             "luci-app-campus-auth/files/usr/lib/lua/luci/view/campus-auth/status_content.htm", 0o644),
         ],
     ),
 ]
