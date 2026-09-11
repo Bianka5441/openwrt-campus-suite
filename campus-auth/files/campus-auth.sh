@@ -102,7 +102,7 @@ if [ "$MODE" = "--probe" ]; then
 	OUT=/tmp/campus-auth.probe
 	http=$(curl -s -o /dev/null -m 4 -w '%{http_code}' ${CURL_IF:+--interface $INTERFACE} "$CHECK_URL")
 	ua3f=$(netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo y || echo n)
-	oclash=$(pgrep -f openclash >/dev/null && echo y || echo n)
+	oclash=$(pgrep -f "/etc/openclash/" >/dev/null && echo y || echo n)
 	loop=$(ps w 2>/dev/null | grep '[c]ampus-auth-loop' >/dev/null && echo y || echo n)
 	hard=$(grep -q 'campus-auth hardening' /etc/firewall.user 2>/dev/null && echo y || echo n)
 	{

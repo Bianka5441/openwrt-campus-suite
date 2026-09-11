@@ -162,6 +162,13 @@
   - 每次改打包清单/Makefile 后，做一次"装机后清点"：`opkg files <pkg>` 与源码 `files/` 目录对表；
   - 发布前用一台干净设备（或全新 opkg root）跑一遍模式切换冒烟测试，而不是只在升级过的老环境验证。
 - **测试方法备忘（无需账号密码即可验证大半链路）**：`campus-auth --check`（只读门户查询：拉登录页+查认证状态）；空凭据跑 `campus-auth`（应干净退出 exit 1，不发门户请求）；openssl AES 加解密往返；切模式看 UA3F 监听 1080 与加固规则；切回 normal 确认清理。真正需要凭据的只有 authLogin 提交那一步。
+
+### 29. 控制 OpenClash 的三个坑；加固必须热插拔触发
+- **坑 1（检测误报）**：`pgrep -f openclash` 会匹配 **ucitrack 守护进程**（命令行带 `-a openclash`）和 init 包装脚本，导致"看起来一直在跑、从来不真正启动"。必须只认核心进程路径：`pgrep -f "/etc/openclash/"`（兼容老布局 `/etc/openclash/clash` 和新布局 `/etc/openclash/core/clash*`）。调试时小心：**你自己 ssh 命令行里含同样字样也会被 pgrep 匹配**，验证时用变量拆词（`PAT="open"; pgrep -f "${PAT}clash/core"`）。
+- **坑 2（uci 开关）**：OpenClash 的 init 脚本要求 `openclash.config.enable='1'`，否则打印 "Need Start From Luci Page, Exit" 直接退出。模式管理器启停它时要同步置位/复位这个开关。
+- **坑 3（commit 触发重启风暴）**：`uci commit openclash` 会触发 **ucitrack 对 openclash 的自动 restart**——与自己的 start 并发会把对方核心杀掉，表现为"启动成功几秒后无故停止"。对策：值没变就不 commit；start 后轮询等待核心（慢路由要 10 秒以上），不在了自动补一次。
+- **加固触发**：上联口往往在切模式之后才就绪（插线晚、校园网 DHCP 慢），限时重试会过期失效。正确做法是 **netifd 热插拔钩子**（`/etc/hotplug.d/iface/` 里 ifup 时后台重跑 mode apply），插线永远自动生效。
+- **远程调试守则**：任何"远程 ssh 一条命令"里若包含与脚本内 pgrep 相同的进程名，都会污染脚本自己的检测——先想清楚命令行字符串会被谁看见。
 ---
 
 ## 附：本次事件的真实时间线（供对照）

@@ -76,14 +76,17 @@ chmod 600 /etc/config/campus-auth
 /etc/init.d/campus-auth enable
 
 # --------------------------------------- openclash UA3F template ---
-# Ship the proven "port-80 -> UA3F" clash config even in normal mode, so
-# switching to mode 2/3 later has everything ready (user only adds their
-# subscription/nodes in the OpenClash page).
+# Ship the proven "port-80 -> UA3F" clash config even in normal mode, and
+# point OpenClash at it: mode 2/3 can then start OpenClash one-shot with
+# NO subscription needed (80/tcp via UA3F, everything else direct; the
+# user only adds nodes later if they want a ladder).
 if [ -s /usr/share/campus-auth/openclash-ua3f.yaml ] && [ -d /etc/openclash ]; then
 	mkdir -p /etc/openclash/config
 	cp -f /usr/share/campus-auth/openclash-ua3f.yaml /etc/openclash/config/openclash-ua3f.yaml
-	info "openclash: installed config template /etc/openclash/config/openclash-ua3f.yaml"
-	info "   (80 端口流量走 UA3F；订阅/节点在 OpenClash 页面配置)"
+	uci set openclash.config.config_path="/etc/openclash/config/openclash-ua3f.yaml"
+	uci commit openclash
+	info "openclash: config preset to the UA3F template (/etc/openclash/config/openclash-ua3f.yaml)"
+	info "   (80 端口走 UA3F、其余直连；要梯子再在 OpenClash 页面加订阅)"
 fi
 
 if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then

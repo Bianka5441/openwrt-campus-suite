@@ -28,7 +28,13 @@ have_init() { [ -x "/etc/init.d/$1" ]; }
 
 ua3f_listening() { netstat -ltn 2>/dev/null | grep -q ":$UA3F_PORT "; }
 
-openclash_running() { pgrep -f openclash >/dev/null 2>&1; }
+# Match the clash CORE only, across layouts (/etc/openclash/clash on old
+# installs, /etc/openclash/core/clash on new). A bare "pgrep -f openclash"
+# also matches ucitrack's watcher ("-a openclash") and the init wrapper,
+# always falsely reporting running.
+openclash_running() {
+	pgrep -f "/etc/openclash/" >/dev/null 2>&1
+}
 
 . /lib/functions.sh
 config_load campus-auth
@@ -187,6 +193,38 @@ svc_up() { # <name> <up-wanted>
 	fi
 }
 
+# OpenClash's own init refuses to start unless this uci switch is set
+# ("Need Start From Luci Page, Exit"). Flip it together with the service.
+# Skip the commit when unchanged: committing openclash uci triggers an
+# ucitrack auto-restart that races (and kills) our own start below.
+openclash_enable_uci() { # <0|1>
+	[ "$(uci -q get openclash.config.enable)" = "$1" ] && return 0
+	uci set openclash.config.enable="$1"
+	uci commit openclash
+}
+
+# Start OpenClash and WAIT for the core: startup takes 10s+ on slow
+# routers, and a concurrent ucitrack restart may kill our instance -
+# retry once if the core is not up after the first wait.
+openclash_start_wait() {
+	svc_up openclash 1
+	i=0
+	while [ "$i" -lt 15 ]; do
+		sleep 3
+		openclash_running && { log 'openclash started (UA3F template: 80/tcp via UA3F, rest direct)'; return 0; }
+		i=$((i + 1))
+	done
+	svc_up openclash 1
+	i=0
+	while [ "$i" -lt 10 ]; do
+		sleep 3
+		openclash_running && { log 'openclash started on retry (UA3F template: 80/tcp via UA3F, rest direct)'; return 0; }
+		i=$((i + 1))
+	done
+	log 'openclash FAILED to start - check /tmp/openclash.log'
+	return 1
+}
+
 case "$MODE" in
 	normal)
 		if have_init ua3f && ua3f_listening; then
@@ -198,7 +236,7 @@ case "$MODE" in
 			svc_up openclash 0
 			log 'openclash stopped'
 		fi
-		have_init openclash && /etc/init.d/openclash disable 2>/dev/null
+		have_init openclash && { /etc/init.d/openclash disable 2>/dev/null; openclash_enable_uci 0; }
 		remove_hardening
 		ipv6_restore
 		;;
@@ -211,13 +249,8 @@ case "$MODE" in
 			if openclash_running; then
 				:
 			else
-				svc_up openclash 1
-				sleep 2
-				if openclash_running; then
-					log 'openclash started'
-				else
-					log 'openclash FAILED to start (no subscription/config? start it once from its own LuCI page)'
-				fi
+				openclash_enable_uci 1
+				openclash_start_wait
 			fi
 			if [ -f "$OPENCLASH_TEMPLATE" ] && [ -d "$OPENCLASH_CONFIG_DIR" ] \
 				&& [ ! -f "$OPENCLASH_CONFIG_DIR/openclash-ua3f.yaml" ]; then
