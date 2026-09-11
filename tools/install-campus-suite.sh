@@ -75,6 +75,17 @@ uci commit campus-auth
 chmod 600 /etc/config/campus-auth
 /etc/init.d/campus-auth enable
 
+# --------------------------------------- openclash UA3F template ---
+# Ship the proven "port-80 -> UA3F" clash config even in normal mode, so
+# switching to mode 2/3 later has everything ready (user only adds their
+# subscription/nodes in the OpenClash page).
+if [ -s /usr/share/campus-auth/openclash-ua3f.yaml ] && [ -d /etc/openclash ]; then
+	mkdir -p /etc/openclash/config
+	cp -f /usr/share/campus-auth/openclash-ua3f.yaml /etc/openclash/config/openclash-ua3f.yaml
+	info "openclash: installed config template /etc/openclash/config/openclash-ua3f.yaml"
+	info "   (80 端口流量走 UA3F；订阅/节点在 OpenClash 页面配置)"
+fi
+
 if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
 	info "credentials provided: configuring + enabling anti-detect mode"
 	uci set campus-auth.config.username="$USERNAME"
@@ -107,6 +118,8 @@ for f in \
 	/usr/bin/campus-auth \
 	/usr/bin/campus-auth-loop \
 	/usr/bin/campus-auth-mode \
+	/etc/hotplug.d/iface/99-campus-auth \
+	/usr/share/campus-auth/openclash-ua3f.yaml \
 	/usr/share/campus-auth/proto/gportal.sh \
 	/etc/init.d/campus-auth \
 	/usr/libexec/rpcd/campus-auth \

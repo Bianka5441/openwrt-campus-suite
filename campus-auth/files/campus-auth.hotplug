@@ -1,0 +1,18 @@
+#!/bin/sh
+# /etc/hotplug.d/iface/99-campus-auth - re-apply the protection mode
+# whenever a network interface comes up.
+#
+# The hardening rules need the campus uplink to exist; the uplink often
+# comes up long after boot/mode-switch (cable plugged in later, slow
+# campus DHCP). netifd hotplug is the only reliable trigger - a bounded
+# background retry goes stale, this does not.
+#
+# shellcheck disable=SC2034
+[ "$ACTION" = ifup ] || exit 0
+[ "$INTERFACE" = loopback ] && exit 0
+
+[ -x /usr/bin/campus-auth-mode ] || exit 0
+[ -e /etc/config/campus-auth ] || exit 0
+
+# let DHCP and routes settle before probing the uplink
+(sleep 5; /usr/bin/campus-auth-mode apply >/dev/null 2>&1) &
