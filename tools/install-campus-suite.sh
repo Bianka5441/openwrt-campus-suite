@@ -96,3 +96,40 @@ fi
 info "done. Clock note: power-cycled routers may run hours slow; check"
 info "  with 'date' and fix via 'date -u -s @<epoch>' before relying on"
 info "  the nightly quiet window."
+
+# ------------------------------------------------------------ verify ---
+# One-shot completeness check: every file the suite needs at runtime.
+# A missing core file here means the shipped ipk is broken - fail loudly
+# instead of degrading silently (see LESSONS #28).
+info "verifying installation..."
+MISSING=
+for f in \
+	/usr/bin/campus-auth \
+	/usr/bin/campus-auth-loop \
+	/usr/bin/campus-auth-mode \
+	/usr/share/campus-auth/proto/gportal.sh \
+	/etc/init.d/campus-auth \
+	/usr/libexec/rpcd/campus-auth \
+	/usr/lib/lua/luci/controller/campus-auth.lua \
+	/usr/lib/lua/luci/model/cbi/campus-auth/settings.lua \
+	/usr/lib/lua/luci/view/campus-auth/status.htm \
+	/usr/lib/lua/luci/view/campus-auth/status_content.htm \
+	/usr/share/luci/menu.d/luci-app-campus-auth.json \
+	/usr/share/rpcd/acl.d/luci-app-campus-auth.json \
+	/usr/bin/ua3f \
+	/etc/init.d/ua3f \
+	/etc/config/campus-auth
+do
+	[ -e "$f" ] && continue
+	MISSING="$MISSING $f"
+	echo "[install][FATAL] missing:$f" >&2
+done
+[ -z "$MISSING" ] || die "incomplete install - do NOT use this router; rebuild the ipks"
+
+opkg list-installed | grep -E '^(campus-auth|luci-app-campus-auth)' || \
+	die "package db lost campus-auth?!"
+
+# smoke: the mode manager must actually run (catches missing helpers)
+/usr/bin/campus-auth-mode apply || die "campus-auth-mode apply failed"
+/etc/init.d/campus-auth restart >/dev/null 2>&1
+info "verification PASSED - suite is complete and running"
