@@ -28,6 +28,12 @@ info "1/4 installing campus-auth + luci-app"
 opkg install "$DIR/campus-auth.ipk" || die "campus-auth install failed"
 opkg install "$DIR/luci-app-campus-auth.ipk" || die "luci app install failed"
 
+# LuCI caches the menu index and compiled templates; stale entries hide
+# the new app or keep serving old pages until the router reboots.
+info "   clearing LuCI index/template caches"
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* /tmp/luci-templates* 2>/dev/null
+/etc/init.d/rpcd restart >/dev/null 2>&1
+
 # ---------------------------------------------------------- ua3f ---
 info "2/4 installing ua3f (files only: its declared iptables deps are"
 info "   only needed for TPROXY mode; we run SOCKS5 and only need libc)"
@@ -82,8 +88,9 @@ if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
 else
 	# restart so the mode manager applies "normal" (stops ua3f etc.)
 	/etc/init.d/campus-auth restart
+	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* 2>/dev/null
 	info "no credentials given: left in mode=normal; to enable later:"
-	info "  LuCI -> 服务 -> 校园网认证 -> 参数设置, fill account, pick mode ②"
+	info "  LuCI -> 校园网认证 -> 参数设置, fill account, pick mode ②"
 fi
 
 info "done. Clock note: power-cycled routers may run hours slow; check"
