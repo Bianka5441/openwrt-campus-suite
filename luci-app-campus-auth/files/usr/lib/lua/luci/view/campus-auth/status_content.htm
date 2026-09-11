@@ -1,55 +1,76 @@
 <%
-local sys = require "luci.sys"
 local uci = require "luci.model.uci".cursor()
 
-local function sh(cmd)
-    local f = io.popen(cmd .. " 2>/dev/null")
-    if not f then return "" end
-    local out = f:read("*a") or ""
-    f:close()
-    return out
-end
-
-local function file_line(p)
+local function file_lines(p, maxn)
     local f = io.open(p, "r")
-    if not f then return "" end
-    local v = f:read("*l") or ""
+    if not f then return nil end
+    local t = {}
+    local i = 0
+    for line in f:lines() do
+        i = i + 1
+        if maxn and i > maxn then break end
+        t[#t+1] = line
+    end
     f:close()
-    return v
+    return t
 end
 
 -- config
 local mode = uci:get("campus-auth", "config", "mode") or "normal"
 local auth_host = uci:get("campus-auth", "config", "auth_host") or "-"
 local check_url = uci:get("campus-auth", "config", "check_url") or "http://connectivitycheck.platform.hicloud.com/generate_204"
+local paused_t = file_lines("/etc/campus-auth.pause", 1)
+local paused = (paused_t and paused_t[1] == os.date("%Y-%m-%d"))
 
--- state file
-local st_time = ""
-local st_result = ""
-local st_msg = ""
-local st_ip = ""
+-- Probe cache: the page must never fork shells inline - on a slow router
+-- that cost seconds per render (curl -m 6 alone blocks when offline).
+-- campus-auth --probe refreshes the cache in the background; we read the
+-- last snapshot immediately and trigger a refresh when it is stale.
+local PROBE = "/tmp/campus-auth.probe"
+local LOGTAIL = "/tmp/campus-auth.logtail"
+
+local p = {}
 do
-    local f = io.open("/tmp/campus-auth.state", "r")
-    if f then
-        for line in f:lines() do
+    local t = file_lines(PROBE)
+    if t then
+        for _, line in ipairs(t) do
+            local k, v = line:match("^(%w+)=(.*)$")
+            if k then p[k] = v end
+        end
+    end
+end
+
+local stale = true
+if p.ts then
+    stale = (os.time() - tonumber(p.ts)) > 10
+end
+if stale then
+    -- non-blocking: refresh runs in the background, next poll picks it up
+    -- (absolute path: the uhttpd process has no usual PATH)
+    os.execute("/usr/bin/campus-auth --probe >/dev/null 2>&1 </dev/null &")
+end
+
+local http_code = p.http or ""
+local online = (http_code == "204")
+local ua3f_on = (p.ua3f == "y")
+local oclash_on = (p.oclash == "y")
+local loop_on = (p.loop == "y")
+local hardening_on = (p.hard == "y")
+
+-- last auth result from the state file the auth script itself writes
+local st_time, st_result, st_msg, st_ip = "", "", "", ""
+do
+    local t = file_lines("/tmp/campus-auth.state")
+    if t then
+        for _, line in ipairs(t) do
             local k, v = line:match("^(%w+)=(.*)$")
             if k == "time" then st_time = v
             elseif k == "result" then st_result = v
             elseif k == "message" then st_msg = v
             elseif k == "user_ip" then st_ip = v end
         end
-        f:close()
     end
 end
-
--- probes
-local http_code = sh(string.format("curl -s -o /dev/null -m 6 -w '%%{http_code}' '%s'", check_url)):gsub("%s+", "")
-local online = (http_code == "204")
-local ua3f_on = sh("netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo y || echo n"):find("y") ~= nil
-local oclash_on = sh("pgrep -f openclash >/dev/null && echo y || echo n"):find("y") ~= nil
-local loop_on = sh("ps w | grep '[c]ampus-auth-loop' >/dev/null && echo y || echo n"):find("y") ~= nil
-local hardening_on = sh("grep -q 'campus-auth hardening' /etc/firewall.user && echo y || echo n"):find("y") ~= nil
-local paused = file_line("/etc/campus-auth.pause") == os.date("%Y-%m-%d")
 
 local mode_names = {
     normal = "普通路由器模式",
@@ -60,29 +81,37 @@ local mode_colors = { normal = "#9e9e9e", ["anti-detect"] = "#1e88e5", proxy = "
 local mname = mode_names[mode] or mode
 local mcolor = mode_colors[mode] or "#9e9e9e"
 
+local unknown = (http_code == "" or http_code == nil)
 local function chip(label, on, ytext, ntext)
     local color = on and "#43a047" or "#e53935"
     local text = on and (ytext or "运行中") or (ntext or "已停止")
     return string.format('<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 10px;border-radius:12px;border:1px solid %s;color:%s;font-size:90%%">%s：%s</span>', color, color, label, text)
 end
 
+local net_chip
+if unknown then
+    net_chip = '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 10px;border-radius:12px;border:1px solid #9e9e9e;color:#9e9e9e;font-size:90%">网络：检测中…</span>'
+else
+    net_chip = chip("网络", online, "已联网", "未认证")
+end
+
 local chips = {}
 if mode and mode ~= "normal" then
-    chips[#chips+1] = chip("网络", online, "已联网", "未认证")
-    chips[#chips+1] = chip("UA 统一 (UA3F)", ua3f_on)
-    chips[#chips+1] = chip("TTL/NTP/DNS 加固", hardening_on, "已生效", "未生效")
-    if mode == "proxy" then
+    chips[#chips+1] = net_chip
+    if not unknown then chips[#chips+1] = chip("UA 统一 (UA3F)", ua3f_on) end
+    if not unknown then chips[#chips+1] = chip("TTL/NTP/DNS 加固", hardening_on, "已生效", "未生效") end
+    if mode == "proxy" and not unknown then
         chips[#chips+1] = chip("OpenClash 梯子", oclash_on)
     end
 else
-    chips[#chips+1] = chip("网络", online, "已联网", "未认证")
+    chips[#chips+1] = net_chip
 end
 
 local svc
 if mode == "normal" then
     svc = "普通路由器模式：不认证（需要时可手动点「立即认证」）"
 else
-    svc = loop_on and "运行中" or "未运行"
+    svc = loop_on and "运行中" or (unknown and "检测中…" or "未运行")
     if paused then svc = svc .. " · 今日已暂停自动认证（配额保护）" end
 end
 
@@ -92,7 +121,12 @@ if st_time ~= "" then
     last = st_time .. " · " .. result_cn .. (st_msg ~= "" and (" — " .. st_msg) or "")
 end
 
-local log_tail = sh("tail -n 60 /var/log/campus-auth.log")
+local log_tail = ""
+do
+    local t = file_lines(LOGTAIL, 60)
+    if t then log_tail = table.concat(t, "\n") end
+end
+
 local base = luci.dispatcher.build_url("admin/services/campus-auth")
 -%>
 
@@ -105,7 +139,7 @@ local base = luci.dispatcher.build_url("admin/services/campus-auth")
 </div>
 
 <table class="table" cellspacing="0" border="0">
-    <tr><td width="33%">网络状态</td><td><% if online then %>已联网（HTTP 204）<% else %>无网络（HTTP <%=http_code%>）<% end %></td></tr>
+    <tr><td width="33%">网络状态</td><td><% if unknown then %>检测中…<% elseif online then %>已联网（HTTP 204）<% else %>无网络（HTTP <%=http_code%>）<% end %></td></tr>
     <tr><td>门户服务器</td><td><%=auth_host%></td></tr>
     <tr><td>校园网 IP</td><td><%=(st_ip ~= "" and st_ip or "-")%></td></tr>
     <tr><td>后台守护</td><td><%=svc%></td></tr>

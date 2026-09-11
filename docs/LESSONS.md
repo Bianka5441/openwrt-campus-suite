@@ -133,6 +133,26 @@
   2. **reasoncode:43 自动换绑**——配额耗尽但旧绑定属于路由器自己时，门户会发"是否重新绑定至当前设备"提议（附 bindmac），确认后原绑定挪到当前位置，其他设备不受影响（插件 v1.0.10 已自动化：仅当 bindmac 等于本机 MAC 才接受）。
 - **正确姿势**：路由器固定一个网口别搬；配额烧光先试 app"增加绑定"；报 reasoncode:43 时若 bindmac 是本机可放心自动换绑。脚本侧配套"省配额"策略（夜间静默、失败退避、今日暂停）把重试消耗压到最低。
 - **附带的坑**：路由器断电重启后时钟可能慢数小时（无 RTC，sysfixtime 恢复旧值 + 无网无法 NTP），所有按时间调度的逻辑（静默窗口、暂停过期）随之偏移；排障时先 `date` 对表，必要时 `date -s @<epoch>` 手动校正。
+
+### 26. 状态页绝不能内联跑探测链：后台缓存 + 瞬时渲染
+- **现象**：老路由器（mipsel_24kc，上行慢）打开运行状态页要卡 5~6 秒，且旧版每 10 秒整页 `meta refresh` 一次，用户看到的大部分时间是白屏；其他 CBI 插件页都没这么慢。
+- **根因**：模板渲染时同步 `io.popen` 一串探测——联网检查 `curl -m 6` 在**未认证状态会等满 6 秒超时**，加上 netstat/pgrep/ps/tail 各 fork 一次，全部串行阻塞页面；整页刷新又把主题框架一起重渲染，成本翻倍。
+- **正确姿势（v1.0.13 实装）**：
+  1. 所有探测搬进 `campus-auth --probe`，结果写 `/tmp/campus-auth.probe` + `/tmp/campus-auth.logtail`（原子写：先 `.new` 再 `mv`）；
+  2. 页面只**读缓存**（毫秒级），缓存超过 10 秒就 `os.execute("... --probe ... &")` 后台补一次，本轮先显示旧值或"检测中…"，下一轮轮询拿到新值；
+  3. 整页刷新改为 XHR 只刷新状态区块（`/fragment` 端点返回裸片段，不带主题），主题骨架永不重载。
+- **实测**：页面内容可见时间从 6 秒+ 降到 25ms；离线时渲染也不再有卡顿。
+- **附带的坑**：
+  - 老 LuCI 的 tparser 兼容性：`<%-- --%>` 长注释不支持（把 `--` 当 Lua 代码，报 unexpected symbol），要用 `<% --注释 --%>` 的 Lua 注释写法；`<%+` 是 include 保留字；`local a="", b=""` 多变量一行声明不支持，要分开写；
+  - 纯 Lua dispatcher 下 `template()` 不自动包主题，必须 `call()` 手动 render header/片段/footer；
+  - uhttpd 环境里 spawn 后台任务要用**绝对路径**并重定向 stdin/stdout，否则找不到命令或挂住请求。
+
+### 27. 没有网页密码时调试 LuCI：会话与登录的几个坑
+- **坑 1**：`/etc/config/rpcd` 的 `option password` 必须是 **crypt 哈希**（如 `$1$salt$...`，可用 `openssl passwd -1 -salt xx 生成`），写明文永远登录失败（rpcd 直接拿它当 hash 比较）；`$p$root` 表示读系统 shadow。
+- **坑 2**：`ubus call session login` 拿到的会话**缺 `token`**，LuCI dispatcher 的 `session_retrieve` 要求 `values.token` 是字符串——还要再 `ubus call session set` 补一个 token，然后把会话 id 设为浏览器的 `sysauth` Cookie 才能进后台。
+- **坑 3**：浏览器里残留**两个同名 `sysauth` Cookie**（旧的过期会话 + 新的）时，服务端只读第一个，永远 403；要把 Cookie 在所有 path 变体下删干净再设新的。
+- **坑 4**：改 `/etc/shadow` 或 rpcd 配置后立即生效的是**登录路径**，但正在运行的会话在 rpcd 内存里，重启 rpcd 会全掉——调试时先造好新会话再恢复原配置。
+- **纪律**：动密码前先备份（`cp /etc/shadow /etc/shadow.bak`），验证完立刻原样恢复；临时哈希/密码用完即弃，**任何真实凭据不进文档、不进仓库**。
 ---
 
 ## 附：本次事件的真实时间线（供对照）

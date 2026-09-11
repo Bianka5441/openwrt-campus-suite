@@ -93,11 +93,35 @@ if [ "$MODE" = "--resume" ]; then
 	exit 0
 fi
 
-# While the cooldown marker exists, no login attempt is made;
-# state checks (--check) are still allowed.
-[ "$MODE" != "--check" ] && [ -e "$MARKER" ] && exit 55
+# --probe: collect every status-page signal (connectivity, daemons, hardening,
+# log tail) and write it to /tmp/campus-auth.probe + /tmp/campus-auth.logtail.
+# The LuCI status page reads those cache files instead of running shells
+# inline - on slow routers the page rendered in seconds because every render
+# forked a probe chain including a curl with a 6s timeout.
+if [ "$MODE" = "--probe" ]; then
+	OUT=/tmp/campus-auth.probe
+	http=$(curl -s -o /dev/null -m 4 -w '%{http_code}' ${CURL_IF:+--interface $INTERFACE} "$CHECK_URL")
+	ua3f=$(netstat -ltn 2>/dev/null | grep -q ':1080 ' && echo y || echo n)
+	oclash=$(pgrep -f openclash >/dev/null && echo y || echo n)
+	loop=$(ps w 2>/dev/null | grep '[c]ampus-auth-loop' >/dev/null && echo y || echo n)
+	hard=$(grep -q 'campus-auth hardening' /etc/firewall.user 2>/dev/null && echo y || echo n)
+	{
+		printf 'http=%s\n' "$http"
+		printf 'ua3f=%s\n' "$ua3f"
+		printf 'oclash=%s\n' "$oclash"
+		printf 'loop=%s\n' "$loop"
+		printf 'hard=%s\n' "$hard"
+		printf 'ts=%s\n' "$(date +%s)"
+	} > "$OUT.new" && mv -f "$OUT.new" "$OUT"
+	tail -n 60 "$LOG" > /tmp/campus-auth.logtail 2>/dev/null
+	exit 0
+fi
 
-if [ "$MODE" != "--check" ]; then
+# While the cooldown marker exists, no login attempt is made;
+# state checks (--check/--probe) are still allowed.
+[ "$MODE" != "--check" ] && [ "$MODE" != "--probe" ] && [ -e "$MARKER" ] && exit 55
+
+if [ "$MODE" != "--check" ] && [ "$MODE" != "--probe" ]; then
 	[ -n "$USERNAME" ] && [ -n "$PASSWORD" ] || {
 		log 'username/password not configured'
 		write_state failed 'username/password not configured'
