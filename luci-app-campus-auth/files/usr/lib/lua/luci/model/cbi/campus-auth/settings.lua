@@ -11,8 +11,8 @@ s.addremove = false
 
 o = s:option(ListValue, "mode", "当前模式")
 o:value("normal", "① 普通路由器（不认证、不伪装）")
-o:value("anti-detect", "② 校园网认证 + 反检测")
-o:value("proxy", "③ 反检测 + 梯子（OpenClash）")
+o:value("anti-detect", "② 校园网认证 + 反检测（UA3F/加固/OpenClash）")
+o:value("proxy", "③ 反检测 + 梯子（含 UA3F 重定向模板）")
 o.default = "normal"
 o.rmempty = false
 o.description = "选「①」就是纯普通路由器：不自动登录校园网、不装任何伪装。选「②/③」才启用自动登录。"

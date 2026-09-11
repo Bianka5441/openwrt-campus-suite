@@ -97,7 +97,7 @@ apply_hardening() {
 	wan="$(wan_if)"
 	if [ -z "$wan" ]; then
 		log 'campus uplink not found; hardening skipped'
-		return 0
+		return 1
 	fi
 	if grep -q "^${MARK_BEGIN}$" "$FW_USER" 2>/dev/null \
 		&& grep -q -- "-o $wan -j TTL" "$FW_USER" 2>/dev/null; then
@@ -110,6 +110,41 @@ apply_hardening() {
 	/etc/init.d/sysntpd restart 2>/dev/null
 	/etc/init.d/firewall restart 2>/dev/null
 	log "hardening applied on $wan (TTL 64, NTP/DNS redirect)"
+}
+
+# The campus uplink often comes up AFTER the mode switch (cable plugged in
+# later, campus DHCP slow). Retry in the background instead of skipping
+# until the next mode change - skipped hardening is invisible to the user
+# and defeats the whole mode.
+hardening_wait_bg() {
+	(
+		i=0
+		while [ "$i" -lt 60 ]; do
+			sleep 10
+			# stay quiet while the uplink is still absent (already logged once)
+			[ -n "$(wan_if)" ] || { i=$((i + 1)); continue; }
+			apply_hardening && exit 0
+			i=$((i + 1))
+		done
+		log 'uplink still absent after 10 minutes; hardening NOT applied - plug the campus cable and re-apply the mode'
+	) >/dev/null 2>&1 &
+}
+
+ua3f_start_logged() {
+	if have_init ua3f; then
+		if ua3f_listening; then
+			return 0
+		fi
+		svc_up ua3f 1
+		sleep 2
+		if ua3f_listening; then
+			log 'ua3f started (unified User-Agent)'
+		else
+			log 'ua3f FAILED to start - UA unification is OFF; check syslog and /usr/bin/ua3f'
+		fi
+	else
+		log 'ua3f not installed; UA unification unavailable, install it for full anti-detection'
+	fi
 }
 
 remove_hardening() {
@@ -167,36 +202,32 @@ case "$MODE" in
 		remove_hardening
 		ipv6_restore
 		;;
-	anti-detect)
-		if have_init ua3f; then
-			ua3f_listening || { svc_up ua3f 1; log 'ua3f started (unified User-Agent)'; }
-		else
-			log 'ua3f not installed; UA unification unavailable, install it for full anti-detection'
-		fi
-		if have_init openclash && openclash_running; then
-			svc_up openclash 0
-			log 'openclash stopped (not used in anti-detect mode)'
-		fi
-		apply_hardening
-		ipv6_off
-		;;
-	proxy)
-		if have_init ua3f; then
-			ua3f_listening || { svc_up ua3f 1; log 'ua3f started (unified User-Agent)'; }
-		else
-			log 'ua3f not installed; UA unification unavailable, install it for full anti-detection'
-		fi
+	anti-detect|proxy)
+		# Both protection modes bring up the full stack: UA3F + OpenClash
+		# (when installed) + hardening. proxy mode additionally drops the
+		# UA3F redirect template for OpenClash's own config management.
+		ua3f_start_logged
 		if have_init openclash; then
-			openclash_running || { svc_up openclash 1; log 'openclash started (proxy mode)'; }
+			if openclash_running; then
+				:
+			else
+				svc_up openclash 1
+				sleep 2
+				if openclash_running; then
+					log 'openclash started'
+				else
+					log 'openclash FAILED to start (no subscription/config? start it once from its own LuCI page)'
+				fi
+			fi
 			if [ -f "$OPENCLASH_TEMPLATE" ] && [ -d "$OPENCLASH_CONFIG_DIR" ] \
 				&& [ ! -f "$OPENCLASH_CONFIG_DIR/openclash-ua3f.yaml" ]; then
 				cp "$OPENCLASH_TEMPLATE" "$OPENCLASH_CONFIG_DIR/openclash-ua3f.yaml"
 				log 'installed openclash-ua3f.yaml template into /etc/openclash/config/'
 			fi
 		else
-			log 'openclash not installed; proxy mode degraded to anti-detect'
+			log 'openclash not installed; only UA3F + hardening protect this mode'
 		fi
-		apply_hardening
+		apply_hardening || hardening_wait_bg
 		ipv6_off
 		;;
 esac

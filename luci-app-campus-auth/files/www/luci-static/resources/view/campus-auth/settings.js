@@ -20,13 +20,13 @@ var callInterfaces = rpc.declare({
 			title: '② 认证 + 反检测',
 			value: 'anti-detect',
 			color: '#1e88e5',
-			lines: ['自动登录 + 防多设备检测', '统一 UA / TTL，NTP·DNS 走路由器', '关闭 LAN IPv6，不装梯子']
+			lines: ['自动登录 + 防多设备检测', '自动启动 UA3F / TTL 统一 / NTP·DNS 收归', '自动启动 OpenClash（已安装时），关闭 LAN IPv6']
 		},
 		{
 			title: '③ 反检测 + 梯子',
 			value: 'proxy',
 			color: '#43a047',
-			lines: ['反检测全部功能 + OpenClash', '订阅、节点在 OpenClash 里管理', '当前推荐模式']
+			lines: ['与 ② 相同的完整防护', '额外下发 UA3F 重定向模板给 OpenClash', '订阅、节点在 OpenClash 里配置后即走梯子']
 		}
 	];
 
@@ -57,8 +57,8 @@ return view.extend({
 
 			var o = s1.option(form.ListValue, 'mode', '当前模式');
 			o.value('normal', '① 普通路由器（不认证、不伪装）');
-			o.value('anti-detect', '② 校园网认证 + 反检测');
-			o.value('proxy', '③ 反检测 + 梯子（OpenClash）');
+			o.value("anti-detect", "② 校园网认证 + 反检测（UA3F/加固/OpenClash）");
+			o.value("proxy", "③ 反检测 + 梯子（含 UA3F 重定向模板）");
 			o.default = 'normal';
 			o.rmempty = false;
 			o.description = '选「①」就是纯普通路由器：不自动登录校园网、不装任何伪装（临时需要时可手动点状态页的「立即认证」）。选「②/③」才启用自动登录。切换在保存后和开机时自动生效。';
