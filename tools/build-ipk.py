@@ -15,7 +15,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "1.0.13-r16"
+# Keep in sync with the PKG_RELEASE in both Makefiles (SDK builds render
+# the same number as PKG_VERSION-PKG_RELEASE).
+VERSION = "1.0.13-r17"
 
 
 def tar_gz(entries):

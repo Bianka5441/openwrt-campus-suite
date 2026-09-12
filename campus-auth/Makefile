@@ -9,7 +9,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=campus-auth
 PKG_VERSION:=1.0.13
-PKG_RELEASE:=1
+# Keep in sync with tools/build-ipk.py VERSION (rendered there as -r<N>).
+PKG_RELEASE:=17
 
 PKG_MAINTAINER:=Bianka5441
 PKG_LICENSE:=Apache-2.0

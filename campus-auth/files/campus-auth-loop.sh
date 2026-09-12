@@ -43,6 +43,7 @@ MARKER=/etc/campus-auth.reason55
 ONLINE_MARKER=/tmp/campus-auth.await-online
 PAUSE=/etc/campus-auth.pause
 LOG=/var/log/campus-auth.log
+TTL_FAIL=/tmp/campus-auth.ttl-fail
 # Portal-ordered cooldowns (reasoncode:55) last 15 minutes.
 COOLDOWN_SECS=900
 
@@ -103,6 +104,15 @@ while :; do
 		fi
 	fi
 
+	# UA3F self-heal: the DST-PORT,80 rules send LAN http into ua3f, so a
+	# dead ua3f is a silent black hole for every plaintext page. Check the
+	# listener (not just the process) and start it again. start() is a no-op
+	# on a running service, so this never kills a mid-start instance.
+	if [ -x /etc/init.d/ua3f ] && ! netstat -ltn 2>/dev/null | grep -q ':1080 '; then
+		log 'ua3f not listening on 1080; starting it'
+		/etc/init.d/ua3f start >/dev/null 2>&1
+	fi
+
 	# hardening self-heal: needs the uplink, so gate on its route
 	if ! grep -q "campus-auth hardening" /etc/firewall.user 2>/dev/null; then
 		if ip -4 route get "$AUTH_HOST" >/dev/null 2>&1; then
@@ -144,15 +154,24 @@ while :; do
 		# cannot work. Once the account is online (this branch), install
 		# the module from the feed - one time - and re-apply hardening.
 		if ! iptables -t mangle -A POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null; then
-			log 'TTL target missing; installing kmod-ipt-ipopt from the feed (one-time)'
-			opkg update >/dev/null 2>&1
-			opkg install kmod-ipt-ipopt iptables-mod-ipopt >/dev/null 2>&1
-			if iptables -t mangle -A POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null; then
-				iptables -t mangle -D POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null
-				log 'TTL module installed; re-applying the mode for the hardening rules'
-				/usr/bin/campus-auth-mode apply >/dev/null 2>&1
+			# The feed can stay unreachable for a while (campus TLS resets,
+			# slow mirrors); do not hammer `opkg update` every cycle - back
+			# off to at most one attempt per hour.
+			if [ -e "$TTL_FAIL" ] && [ $(( $(date +%s) - $(cat "$TTL_FAIL" 2>/dev/null || echo 0) )) -lt 3600 ]; then
+				: # backoff window, stay silent
 			else
-				log 'TTL module install failed; will retry next cycle'
+				log 'TTL target missing; installing kmod-ipt-ipopt from the feed (one-time)'
+				opkg update >/dev/null 2>&1
+				opkg install kmod-ipt-ipopt iptables-mod-ipopt >/dev/null 2>&1
+				if iptables -t mangle -A POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null; then
+					iptables -t mangle -D POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null
+					rm -f "$TTL_FAIL"
+					log 'TTL module installed; re-applying the mode for the hardening rules'
+					/usr/bin/campus-auth-mode apply >/dev/null 2>&1
+				else
+					date +%s > "$TTL_FAIL"
+					log 'TTL module install failed; retrying within an hour'
+				fi
 			fi
 		else
 			iptables -t mangle -D POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null

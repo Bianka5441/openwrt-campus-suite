@@ -17,9 +17,13 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)/artifacts/flash"
 BUNDLE="/tmp/campus-suite-offline"
 
 mkdir -p "$DIR"
-for f in campus-auth.ipk luci-app-campus-auth.ipk ua3f.ipk install-campus-suite.sh; do
+# The installer always comes from the repo (single source of truth) so a
+# stale bundle copy can never resurrect an outdated/flagged version; the
+# bundle only supplies the packages.
+for f in campus-auth.ipk luci-app-campus-auth.ipk ua3f.ipk; do
 	[ -s "$BUNDLE/$f" ] && cp "$BUNDLE/$f" "$DIR/" || true
 done
+cp "$(cd "$(dirname "$0")/.." && pwd)/tools/install-campus-suite.sh" "$DIR/"
 [ -s "$DIR/campus-auth.ipk" ] || { echo "[flash] missing $BUNDLE bundle"; exit 1; }
 
 echo "[flash] 1/3 uploading suite to $IP ..."
