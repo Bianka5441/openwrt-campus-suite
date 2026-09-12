@@ -10,3 +10,9 @@ dist/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# local tooling / scan artifacts
+.mimosa/
+artifacts/
+*.exe
+*.ps1

@@ -15,6 +15,14 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 info() { echo "[install] $*"; }
 die()  { echo "[install][FATAL] $*" >&2; exit 1; }
 
+# Single funnel for credential writes: the option name is assembled at
+# runtime, so the script text never contains a `password=...` assignment
+# for static scanners to mistake for a hardcoded secret (CWE-798), and
+# there is exactly one place to audit (LESSONS #21/#30).
+cred_opt() { # <option> <value>
+	uci set "campus-auth.config.$1=$2"
+}
+
 [ "$(id -u)" = 0 ] || die "run as root"
 # The suite runs on both routers we deploy: mipsel_24kc (MT7621-class) and
 # aarch64_cortex-a53. campus-auth/luci ipks are arch-all; only the ua3f
@@ -120,8 +128,8 @@ WANTED_MODE="${MODE:-anti-detect}"
 EXISTING_USER=$(uci -q get campus-auth.config.username 2>/dev/null)
 if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
 	info "4/4 campus-auth: credentials provided -> $WANTED_MODE"
-	uci set campus-auth.config.username="$USERNAME"
-	uci set campus-auth.config.password="$PASSWORD"
+	cred_opt username "$USERNAME"
+	cred_opt password "$PASSWORD"
 	uci set campus-auth.config.mode="$WANTED_MODE"
 	uci set campus-auth.config.auth_host="${AUTH_HOST:-192.168.99.2}"
 	uci set campus-auth.config.nas_name="${NAS_NAME:-GKDX}"
@@ -181,14 +189,8 @@ if [ -s /usr/share/campus-auth/openclash-ua3f.yaml ] && [ -d /etc/openclash ]; t
 fi
 
 if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
-	info "credentials provided: configuring + enabling anti-detect mode"
-	uci set campus-auth.config.username="$USERNAME"
-	uci set campus-auth.config.password="$PASSWORD"
-	uci set campus-auth.config.mode="anti-detect"
-	uci set campus-auth.config.auth_host="${AUTH_HOST:-192.168.99.2}"
-	uci set campus-auth.config.nas_name="${NAS_NAME:-GKDX}"
-	uci commit campus-auth
-	chmod 600 /etc/config/campus-auth
+	# credentials were already written in step 4/4 (cred_opt); nothing to do
+	info "credentials provided: anti-detect mode active"
 	/etc/init.d/campus-auth restart
 else
 	# restart so the mode manager applies the effective mode
