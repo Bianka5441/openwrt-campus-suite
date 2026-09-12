@@ -155,6 +155,48 @@ gportal_post_encrypted() {
 		"http://${AUTH_HOST}${ENDPOINT}?round=$(( $(date +%s) % 1001 ))")
 }
 
+# Confirm a rebind offer/attempt for $1 (a MAC). 0 = accepted.
+gportal_rebind_confirm() {
+	# The portal rate-limits consecutive operations ("操作过于
+	# 频繁,请5秒后再试"): pace every portal call.
+	sleep 6
+	FORM=$(gportal_build_form "$1")
+	gportal_post_encrypted "/gportal/web/reBindMac" || {
+		log 'rebind request failed'
+		REJECT_MSG='rebind request failed'
+		return 1
+	}
+	case "$RESPONSE" in
+		*'"status":0'*)
+			log "rebind refused: $RESPONSE"
+			REJECT_MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-200)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+# Fresh login (new page -> new sign/iv) to bring the session up after a
+# rebind. 0 = online, 55 = portal-ordered cooldown, other = reject.
+gportal_login_after_rebind() {
+	sleep 6
+	gportal_fetch_login_page || return 2
+	FORM=$(gportal_build_form "")
+	gportal_post_encrypted "/gportal/web/authLogin" || {
+		log 'post-rebind login request failed'
+		REJECT_MSG='post-rebind login request failed'
+		return 1
+	}
+	case "$RESPONSE" in
+		*'"status":1'*) return 0;;
+		*'"reasoncode":55'*) return 55;;
+		*)
+			REJECT_MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-240)
+			return 1
+			;;
+	esac
+}
+
 proto_login() {
 	gportal_require_ip || return $?
 	gportal_fetch_login_page || return $?
@@ -189,40 +231,20 @@ proto_login() {
 				return 1
 			fi
 			log "portal offers rebind of our own binding (${BINDMAC}); confirming via reBindMac"
-			# The portal rate-limits consecutive operations ("操作过于
-			# 频繁,请5秒后再试"): pace the rebind and the follow-up login.
-			sleep 6
-			FORM=$(gportal_build_form "$BINDMAC")
-			gportal_post_encrypted "/gportal/web/reBindMac" || {
-				log 'rebind request failed'
-				REJECT_MSG='rebind request failed'
-				return 1
-			}
-			case "$RESPONSE" in
-				*'"status":0'*)
-					REJECT_MSG="portal refused the rebind: $(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-200)"
-					log "rebind refused: $RESPONSE"
-					return 1
-					;;
-			esac
-			# Rebind accepted: run a fresh login (new page -> new sign/iv)
-			# to bring the session up.
-			sleep 6
-			gportal_fetch_login_page || return 2
-			FORM=$(gportal_build_form "")
-			gportal_post_encrypted "/gportal/web/authLogin" || {
-				log 'post-rebind login request failed'
-				REJECT_MSG='post-rebind login request failed'
-				return 1
-			}
-			case "$RESPONSE" in
-				*'"status":1'*) return 0;;
-				*'"reasoncode":55'*) return 55;;
-				*)
-					REJECT_MSG=$(printf '%s' "$RESPONSE" | tr '\n' ' ' | cut -c1-240)
-					return 1
-					;;
-			esac
+			gportal_rebind_confirm "$BINDMAC" || return 1
+			gportal_login_after_rebind
+			;;
+		*'"reasoncode":7'*)
+			# Bind count exhausted. The reBindMac flow MOVES an existing
+			# binding to us and (proved on 09-10) can succeed without
+			# consuming a count - so offer ourselves as the target before
+			# giving up. Worst case the portal refuses and we surface the
+			# original rejection; best case the morning recovery is fully
+			# automatic again and no app visit is ever needed.
+			log 'bind count exhausted (reasoncode:7); attempting self-rebind with our own MAC'
+			gportal_rebind_confirm "$OWN_MAC" || return 1
+			log 'self-rebind accepted; re-authenticating'
+			gportal_login_after_rebind
 			;;
 		*'"reasoncode":55'*)
 			return 55
