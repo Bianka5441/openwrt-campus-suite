@@ -70,6 +70,10 @@ fi
 # ------------------------------------------------- ua3f SOCKS5 cfg ---
 info "3/4 configuring ua3f: SOCKS5 on 127.0.0.1:1080, GLOBAL Chrome UA"
 UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+# the ipk's default config ships with the master switch OFF - without
+# this the init script silently refuses to start ("enabled" section)
+uci -q get ua3f.enabled.enabled >/dev/null 2>&1 || uci set ua3f.enabled=ua3f
+uci set ua3f.enabled.enabled="1"
 uci set ua3f.main.server_mode="SOCKS5"
 uci set ua3f.main.port="1080"
 uci set ua3f.main.bind="127.0.0.1"
