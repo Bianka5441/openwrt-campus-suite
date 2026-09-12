@@ -190,6 +190,7 @@
   3. 别信 busybox `pgrep -x` 对短进程名的匹配，用 `ps w | grep` 或 `netstat -tln`；busybox nc 常是阉割版（`nc [IPADDR PORT]`，**没有监听模式**），抓包测试别指望它。
 - **UA 改写功能实测（离线可用，不依赖外网）**：在路由器上放一个 uhttpd CGI（`/www/cgi-bin/ua-test` 打印 `HTTP_USER_AGENT`），对比 `curl -x socks5h://127.0.0.1:1080`（应为 Chrome 指纹）与直连（应原样）——比 nc 抓包可靠得多，且能区分"UA3F 没改写"与"改写了但抓包没抓到"。
 - **failsafe 救援**：断电 → 按住 RESET → 通电 → LED 快闪（每秒 4~5 次）后松开；路由器固定在 `192.168.1.1`，**无 DHCP**（电脑要配 192.168.1.x 静态 IP），dropbear 免密进入后 `mount_root` 排查或 `firstboot` 重置。**DSA 平台（mt7981 等）failsafe 只监听 LAN1 口**，网线插别的口连不上——"进了 failsafe 还是连不上"先换到 LAN1 再排查。频繁拔电的机器优先怀疑 overlay（JFFS2）损坏。
+- **实机案例（2026-09）**：一台路由器呈现完整"节拍器"特征（1Gbps 链路正常、每 2~3 秒 1 包恒定心跳、无 DHCP/ARP/ICMPv6 应答、全候选网段无回应、failsafe 进不去、按住 RESET 重启心跳节奏不变）——最终确认 **CPU 侧硬件故障**，交换芯片独立存活所致，已退换。教训：确认线在 LAN 口且 failsafe（含换 LAN1）都无效后，剩余可能性基本只剩硬件故障，按节拍器特征即可下结论，不必继续在软件层耗时间。
 - **沟通**：UAC/授权类系统弹窗必须**提前一句话说明用途**，否则大概率被当成可疑弹窗直接取消。
 
 ---
