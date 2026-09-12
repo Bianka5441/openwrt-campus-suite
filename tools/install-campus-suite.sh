@@ -103,9 +103,11 @@ uci set ua3f.main.log_level="WARN"
 uci commit ua3f
 /etc/init.d/ua3f enable
 /etc/init.d/ua3f start 2>/dev/null
-sleep 2
+i=0; while ! netstat -ltn 2>/dev/null | grep -q ':1080 '; do
+	i=$((i + 1)); [ "$i" -gt 6 ] && break; sleep 1
+done
 netstat -ltn 2>/dev/null | grep -q ':1080 ' && info "ua3f: listening on 1080" \
-	|| info "WARNING: ua3f not listening (check logread)"
+	|| info "WARNING: ua3f not listening yet (step-4 verification polls longer)"
 
 # ---------------------------------------------- campus-auth mode ---
 # Credentials/mode policy (LESSONS #21: never overwrite live credentials):
