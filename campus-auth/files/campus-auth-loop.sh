@@ -139,6 +139,24 @@ while :; do
 	if [ "$rc" = 0 ]; then
 		FAILS=0
 		rm -f "$ONLINE_MARKER"
+		# TTL module auto-provision: some firmwares ship without
+		# kmod-ipt-ipopt (the TTL target), so TTL unification silently
+		# cannot work. Once the account is online (this branch), install
+		# the module from the feed - one time - and re-apply hardening.
+		if ! iptables -t mangle -A POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null; then
+			log 'TTL target missing; installing kmod-ipt-ipopt from the feed (one-time)'
+			opkg update >/dev/null 2>&1
+			opkg install kmod-ipt-ipopt iptables-mod-ipopt >/dev/null 2>&1
+			if iptables -t mangle -A POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null; then
+				iptables -t mangle -D POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null
+				log 'TTL module installed; re-applying the mode for the hardening rules'
+				/usr/bin/campus-auth-mode apply >/dev/null 2>&1
+			else
+				log 'TTL module install failed; will retry next cycle'
+			fi
+		else
+			iptables -t mangle -D POSTROUTING -o lo -j TTL --ttl-set 64 2>/dev/null
+		fi
 	elif [ "$rc" = 1 ]; then
 		if [ ! -e "$ONLINE_MARKER" ]; then
 			FAILS=$((FAILS + 1))

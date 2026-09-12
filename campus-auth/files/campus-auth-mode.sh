@@ -51,7 +51,19 @@ wan_if() {
 	if [ -n "$INTERFACE" ]; then
 		echo "$INTERFACE"
 	else
-		ip -4 route get "$AUTH_HOST" 2>/dev/null | grep -o 'dev [^ ]* ' | awk '{print $2; exit}'
+		local dev
+		dev=$(ip -4 route get "$AUTH_HOST" 2>/dev/null | grep -o 'dev [^ ]* ' | awk '{print $2; exit}')
+		[ -n "$dev" ] && {
+			echo "$dev"
+			return
+		}
+		# No route yet (cable just plugged, DHCP still pending) - but the
+		# hardening rules are interface-based (TTL on the WAN device, DNS/
+		# NTP redirects on LAN ingress) and do NOT need an address, so take
+		# the WAN device straight from the network config and apply now.
+		dev=$(uci -q get network.wan.device 2>/dev/null)
+		[ -z "$dev" ] && dev=$(uci -q get network.wan.ifname 2>/dev/null)
+		[ -n "$dev" ] && echo "$dev"
 	fi
 }
 
