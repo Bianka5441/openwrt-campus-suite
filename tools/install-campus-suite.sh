@@ -218,4 +218,15 @@ else
 	info "note: openclash is not installed on this firmware; only UA3F + hardening run"
 fi
 
+# hardening needs the campus uplink: either already applied, or it will
+# be applied automatically by the netifd hotplug hook when the cable
+# goes in - make that expectation explicit instead of a silent pending
+if iptables -t mangle -S POSTROUTING 2>/dev/null | grep -q "TTL --ttl-set 64"; then
+	info "hardening: TTL/NTP/DNS rules active on the uplink"
+elif grep -q "campus-auth hardening" /etc/firewall.user 2>/dev/null; then
+	info "hardening: rules persisted, waiting for the campus uplink"
+else
+	info "hardening: pending - will auto-apply via hotplug when the campus cable is plugged in"
+fi
+
 info "verification PASSED - mode $WANTED_MODE, UA3F + OpenClash up, suite complete"

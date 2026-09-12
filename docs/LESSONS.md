@@ -162,6 +162,7 @@
   - 守卫代码是给"可选依赖"用的；**核心组件缺文件必须报错**（apply 脚本开头 `[ -f ... ] || { log "install broken: campus-auth-mode missing"; exit 1; }`），静默降级只留给真正可选项；
   - 每次改打包清单/Makefile 后，做一次"装机后清点"：`opkg files <pkg>` 与源码 `files/` 目录对表；
   - 发布前用一台干净设备（或全新 opkg root）跑一遍模式切换冒烟测试，而不是只在升级过的老环境验证。
+- **另一个静默拒绝**：ua3f 安装包默认配置 `ua3f.enabled.enabled=0`（总开关关），init 脚本同样静默不起——重装/覆盖配置后 UA3F 突然"消失"多半是它；装完必须置 1。安装脚本已内置。
 - **测试方法备忘（无需账号密码即可验证大半链路）**：`campus-auth --check`（只读门户查询：拉登录页+查认证状态）；空凭据跑 `campus-auth`（应干净退出 exit 1，不发门户请求）；openssl AES 加解密往返；切模式看 UA3F 监听 1080 与加固规则；切回 normal 确认清理。真正需要凭据的只有 authLogin 提交那一步。
 
 ### 29. 控制 OpenClash 的三个坑；加固必须热插拔触发
