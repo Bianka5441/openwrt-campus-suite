@@ -32,6 +32,7 @@ config_get QUIET_ENABLE config quiet_enable '1'
 config_get QUIET_START config quiet_start '00:00'
 config_get QUIET_END config quiet_end '06:00'
 config_get HOLDOFF config login_holdoff '900'
+config_get AUTH_HOST config auth_host '192.168.99.2'
 
 case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=60;; esac
 [ "$INTERVAL" -lt 30 ] && INTERVAL=30
@@ -86,6 +87,30 @@ if [ "$LOOP_MODE" = normal ]; then
 fi
 
 while :; do
+	# ---- protection-stack self-heal (runs every cycle, needs no uplink) --
+	# ucitrack auto-restarts, watchdog hiccups and install-time races can
+	# kill the clash core minutes after a successful mode apply; a dead
+	# core is invisible to the user. One cheap pgrep per cycle keeps the
+	# "plug the cable and it works" promise honest.
+	if [ -x /etc/init.d/openclash ]; then
+		if ! pgrep -f "/etc/openclash/" >/dev/null 2>&1; then
+			if [ "$(uci -q get openclash.config.enable)" != "1" ]; then
+				uci set openclash.config.enable='1'
+				uci commit openclash
+			fi
+			log 'openclash core down; restarting it'
+			/etc/init.d/openclash start >/dev/null 2>&1
+		fi
+	fi
+
+	# hardening self-heal: needs the uplink, so gate on its route
+	if ! grep -q "campus-auth hardening" /etc/firewall.user 2>/dev/null; then
+		if ip -4 route get "$AUTH_HOST" >/dev/null 2>&1; then
+			log 'uplink present without hardening; re-applying the mode'
+			/usr/bin/campus-auth-mode apply >/dev/null 2>&1
+		fi
+	fi
+
 	if paused_today; then
 		FAILS=0
 		sleep "$INTERVAL"

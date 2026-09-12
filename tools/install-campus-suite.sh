@@ -32,9 +32,9 @@ done
 for f in campus-auth luci-app-campus-auth; do
 	[ -s "$DIR/$f.ipk" ] || die "missing $DIR/$f.ipk"
 done
-# ua3f.ipk is only mandatory when we'd actually need to install it
-if [ "$TARGET_ARCH" = "mipsel_24kc" ] || [ ! -x /usr/bin/ua3f ]; then
-	[ -s "$DIR/ua3f.ipk" ] || die "missing $DIR/ua3f.ipk"
+# ua3f.ipk is only mandatory when no arch-correct ua3f is installed yet
+if [ ! -x /usr/bin/ua3f ] && [ ! -s "$DIR/ua3f.ipk" ]; then
+	die "missing $DIR/ua3f.ipk"
 fi
 
 info "1/4 installing campus-auth + luci-app"
@@ -50,10 +50,11 @@ rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* /tmp/luci-templates* 2>/dev/
 # ---------------------------------------------------------- ua3f ---
 info "2/4 installing ua3f (files only: its declared iptables deps are"
 info "   only needed for TPROXY mode; we run SOCKS5 and only need libc)"
-if [ "$TARGET_ARCH" != "mipsel_24kc" ] && [ -x /usr/bin/ua3f ]; then
-	# Non-mipsel router: the bundled ua3f.ipk is mipsel-only, but an
-	# arch-correct ua3f is already installed - reuse it.
-	info "   ua3f already installed for this arch, keeping the existing binary"
+if [ -x /usr/bin/ua3f ]; then
+	# An arch-correct ua3f is already installed (a running binary proves
+	# the arch matches) - reuse it regardless of which arch the bundled
+	# ipk was built for.
+	info "   ua3f already installed, keeping the existing binary"
 elif opkg install --force-depends "$DIR/ua3f.ipk" 2>/dev/null; then
 	:
 else
@@ -128,8 +129,19 @@ rm -f /etc/config/campus-auth-opkg
 if [ -s /usr/share/campus-auth/openclash-ua3f.yaml ] && [ -d /etc/openclash ]; then
 	mkdir -p /etc/openclash/config
 	cp -f /usr/share/campus-auth/openclash-ua3f.yaml /etc/openclash/config/openclash-ua3f.yaml
-	uci set openclash.config.config_path="/etc/openclash/config/openclash-ua3f.yaml"
-	uci commit openclash
+	# touch uci only when a value actually changes: every openclash uci
+	# commit triggers an ucitrack auto-restart that races (and can kill)
+	# the core we start below
+	OC_CHANGED=0
+	if [ "$(uci -q get openclash.config.config_path)" != "/etc/openclash/config/openclash-ua3f.yaml" ]; then
+		uci set openclash.config.config_path="/etc/openclash/config/openclash-ua3f.yaml"
+		OC_CHANGED=1
+	fi
+	if [ "$(uci -q get openclash.config.enable)" != "1" ]; then
+		uci set openclash.config.enable="1"
+		OC_CHANGED=1
+	fi
+	[ "$OC_CHANGED" = 1 ] && uci commit openclash
 	info "openclash: config preset to the UA3F template (/etc/openclash/config/openclash-ua3f.yaml)"
 	info "   (80 端口走 UA3F、其余直连；要梯子再在 OpenClash 页面加订阅)"
 fi
@@ -208,9 +220,20 @@ done
 info "ua3f: listening on 1080"
 
 if [ -x /etc/init.d/openclash ]; then
-	i=0
+	i=0; healed=0
 	until pgrep -f "/etc/openclash/" >/dev/null 2>&1; do
-		i=$((i + 1)); [ "$i" -gt 20 ] && die "openclash core not running after flash (see /tmp/openclash.log)"
+		i=$((i + 1))
+		if [ "$i" -gt 20 ] && [ "$healed" = 0 ]; then
+			# ucitrack may have raced us; wait out its grace window and
+			# bring the core up once more
+			info "openclash core died during setup; healing"
+			uci -q set openclash.config.enable="1"; uci -q commit openclash
+			/etc/init.d/openclash start >/dev/null 2>&1
+			healed=1; i=0
+		fi
+		if [ "$healed" = 1 ] && [ "$i" -gt 20 ]; then
+			die "openclash core not running after flash (see /tmp/openclash.log)"
+		fi
 		sleep 3
 	done
 	info "openclash: core running with the UA3F template"
