@@ -87,24 +87,27 @@ netstat -ltn 2>/dev/null | grep -q ':1080 ' && info "ua3f: listening on 1080" \
 # Credentials/mode policy (LESSONS #21: never overwrite live credentials):
 #   1. USERNAME/PASSWORD env given      -> set them + mode anti-detect
 #   2. router already has non-empty creds -> KEEP them and KEEP its mode
-#   3. nothing given, nothing configured  -> fresh default: mode=normal,
-#      empty credentials (a clean plain router)
+#   3. nothing given, nothing configured  -> fresh install still lands in
+#      mode anti-detect (user requirement: every flashed router comes up
+#      with the full protection stack running; auth just waits for creds)
+WANTED_MODE="${MODE:-anti-detect}"
 EXISTING_USER=$(uci -q get campus-auth.config.username 2>/dev/null)
 if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
-	info "4/4 campus-auth: credentials provided -> anti-detect mode"
+	info "4/4 campus-auth: credentials provided -> $WANTED_MODE"
 	uci set campus-auth.config.username="$USERNAME"
 	uci set campus-auth.config.password="$PASSWORD"
-	uci set campus-auth.config.mode="${MODE:-anti-detect}"
+	uci set campus-auth.config.mode="$WANTED_MODE"
 	uci set campus-auth.config.auth_host="${AUTH_HOST:-192.168.99.2}"
 	uci set campus-auth.config.nas_name="${NAS_NAME:-GKDX}"
 	uci commit campus-auth
 elif [ -n "$EXISTING_USER" ]; then
-	info "4/4 campus-auth: existing credentials kept (account ends ...${EXISTING_USER##*??????})"
-	uci set campus-auth.config.mode="${MODE:-$(uci -q get campus-auth.config.mode 2>/dev/null || echo anti-detect)}"
+	EXISTING_MODE=$(uci -q get campus-auth.config.mode 2>/dev/null)
+	info "4/4 campus-auth: existing credentials kept (account ends ...${EXISTING_USER##*??????}); mode ${EXISTING_MODE:-anti-detect}"
+	uci set campus-auth.config.mode="${EXISTING_MODE:-$WANTED_MODE}"
 	uci commit campus-auth
 else
-	info "4/4 campus-auth: fresh install -> mode=normal (plain router, no auth)"
-	uci set campus-auth.config.mode="normal"
+	info "4/4 campus-auth: fresh install -> mode=$WANTED_MODE (no credentials yet: auth idles until an account is set)"
+	uci set campus-auth.config.mode="$WANTED_MODE"
 	uci delete campus-auth.config.username 2>/dev/null
 	uci delete campus-auth.config.password 2>/dev/null
 	uci commit campus-auth
@@ -142,8 +145,8 @@ else
 	/etc/init.d/campus-auth restart
 	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* 2>/dev/null
 	if [ -z "$EXISTING_USER" ]; then
-		info "no credentials given: left in mode=normal; to enable later:"
-		info "  LuCI -> 校园网认证 -> 参数设置, fill account, pick mode ②"
+		info "no credentials given: auth idles until an account is set in"
+		info "  LuCI -> 校园网认证 -> 参数设置 (protection stack already running)"
 	fi
 fi
 
@@ -188,4 +191,27 @@ opkg list-installed | grep -E '^(campus-auth|luci-app-campus-auth)' || \
 # smoke: the mode manager must actually run (catches missing helpers)
 /usr/bin/campus-auth-mode apply || die "campus-auth-mode apply failed"
 /etc/init.d/campus-auth restart >/dev/null 2>&1
-info "verification PASSED - suite is complete and running"
+
+# the protection stack MUST be up after every flash (mode 2 by default)
+[ "$(uci -q get campus-auth.config.mode)" = "$WANTED_MODE" ] \
+	|| die "mode is '$(uci -q get campus-auth.config.mode)', expected $WANTED_MODE"
+
+i=0
+until netstat -ltn 2>/dev/null | grep -q ':1080 '; do
+	i=$((i + 1)); [ "$i" -gt 12 ] && die "ua3f not listening on 1080 after flash"
+	sleep 2
+done
+info "ua3f: listening on 1080"
+
+if [ -x /etc/init.d/openclash ]; then
+	i=0
+	until pgrep -f "/etc/openclash/" >/dev/null 2>&1; do
+		i=$((i + 1)); [ "$i" -gt 20 ] && die "openclash core not running after flash (see /tmp/openclash.log)"
+		sleep 3
+	done
+	info "openclash: core running with the UA3F template"
+else
+	info "note: openclash is not installed on this firmware; only UA3F + hardening run"
+fi
+
+info "verification PASSED - mode $WANTED_MODE, UA3F + OpenClash up, suite complete"
