@@ -67,13 +67,34 @@ netstat -ltn 2>/dev/null | grep -q ':1080 ' && info "ua3f: listening on 1080" \
 	|| info "WARNING: ua3f not listening (check logread)"
 
 # ---------------------------------------------- campus-auth mode ---
-info "4/4 campus-auth: default mode=normal (plain router, no auth)"
-uci set campus-auth.config.mode="normal"
-uci delete campus-auth.config.username 2>/dev/null
-uci delete campus-auth.config.password 2>/dev/null
-uci commit campus-auth
+# Credentials/mode policy (LESSONS #21: never overwrite live credentials):
+#   1. USERNAME/PASSWORD env given      -> set them + mode anti-detect
+#   2. router already has non-empty creds -> KEEP them and KEEP its mode
+#   3. nothing given, nothing configured  -> fresh default: mode=normal,
+#      empty credentials (a clean plain router)
+EXISTING_USER=$(uci -q get campus-auth.config.username 2>/dev/null)
+if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
+	info "4/4 campus-auth: credentials provided -> anti-detect mode"
+	uci set campus-auth.config.username="$USERNAME"
+	uci set campus-auth.config.password="$PASSWORD"
+	uci set campus-auth.config.mode="${MODE:-anti-detect}"
+	uci set campus-auth.config.auth_host="${AUTH_HOST:-192.168.99.2}"
+	uci set campus-auth.config.nas_name="${NAS_NAME:-GKDX}"
+	uci commit campus-auth
+elif [ -n "$EXISTING_USER" ]; then
+	info "4/4 campus-auth: existing credentials kept (account ends ...${EXISTING_USER##*??????})"
+	uci set campus-auth.config.mode="${MODE:-$(uci -q get campus-auth.config.mode 2>/dev/null || echo anti-detect)}"
+	uci commit campus-auth
+else
+	info "4/4 campus-auth: fresh install -> mode=normal (plain router, no auth)"
+	uci set campus-auth.config.mode="normal"
+	uci delete campus-auth.config.username 2>/dev/null
+	uci delete campus-auth.config.password 2>/dev/null
+	uci commit campus-auth
+fi
 chmod 600 /etc/config/campus-auth
 /etc/init.d/campus-auth enable
+rm -f /etc/config/campus-auth-opkg
 
 # --------------------------------------- openclash UA3F template ---
 # Ship the proven "port-80 -> UA3F" clash config even in normal mode, and
@@ -100,11 +121,13 @@ if [ -n "${USERNAME:-}" ] && [ -n "${PASSWORD:-}" ]; then
 	chmod 600 /etc/config/campus-auth
 	/etc/init.d/campus-auth restart
 else
-	# restart so the mode manager applies "normal" (stops ua3f etc.)
+	# restart so the mode manager applies the effective mode
 	/etc/init.d/campus-auth restart
 	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* 2>/dev/null
-	info "no credentials given: left in mode=normal; to enable later:"
-	info "  LuCI -> 校园网认证 -> 参数设置, fill account, pick mode ②"
+	if [ -z "$EXISTING_USER" ]; then
+		info "no credentials given: left in mode=normal; to enable later:"
+		info "  LuCI -> 校园网认证 -> 参数设置, fill account, pick mode ②"
+	fi
 fi
 
 info "done. Clock note: power-cycled routers may run hours slow; check"
