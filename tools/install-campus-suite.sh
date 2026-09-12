@@ -16,13 +16,26 @@ info() { echo "[install] $*"; }
 die()  { echo "[install][FATAL] $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "run as root"
-opkg print-architecture 2>/dev/null | grep -q mipsel_24kc || \
-	die "this installer targets mipsel_24kc (wrong router/firmware?)"
+# The suite runs on both routers we deploy: mipsel_24kc (MT7621-class) and
+# aarch64_cortex-a53. campus-auth/luci ipks are arch-all; only the ua3f
+# binary is arch-specific. print-architecture lists every known arch with
+# priorities - check membership, not the last line.
+TARGET_ARCH=""
+for a in $(opkg print-architecture 2>/dev/null | awk '{print $2}'); do
+	case "$a" in
+		mipsel_24kc|aarch64_cortex-a53) TARGET_ARCH="$a" ;;
+	esac
+done
+[ -n "$TARGET_ARCH" ] || die "unsupported architecture for this suite"
 
 # ------------------------------------------------------- packages ---
-for f in campus-auth luci-app-campus-auth ua3f; do
+for f in campus-auth luci-app-campus-auth; do
 	[ -s "$DIR/$f.ipk" ] || die "missing $DIR/$f.ipk"
 done
+# ua3f.ipk is only mandatory when we'd actually need to install it
+if [ "$TARGET_ARCH" = "mipsel_24kc" ] || [ ! -x /usr/bin/ua3f ]; then
+	[ -s "$DIR/ua3f.ipk" ] || die "missing $DIR/ua3f.ipk"
+fi
 
 info "1/4 installing campus-auth + luci-app"
 opkg install "$DIR/campus-auth.ipk" || die "campus-auth install failed"
@@ -37,7 +50,11 @@ rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* /tmp/luci-templates* 2>/dev/
 # ---------------------------------------------------------- ua3f ---
 info "2/4 installing ua3f (files only: its declared iptables deps are"
 info "   only needed for TPROXY mode; we run SOCKS5 and only need libc)"
-if opkg install --force-depends "$DIR/ua3f.ipk" 2>/dev/null; then
+if [ "$TARGET_ARCH" != "mipsel_24kc" ] && [ -x /usr/bin/ua3f ]; then
+	# Non-mipsel router: the bundled ua3f.ipk is mipsel-only, but an
+	# arch-correct ua3f is already installed - reuse it.
+	info "   ua3f already installed for this arch, keeping the existing binary"
+elif opkg install --force-depends "$DIR/ua3f.ipk" 2>/dev/null; then
 	:
 else
 	TMPD="/tmp/ua3f-unpack.$$"
